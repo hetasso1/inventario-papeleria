@@ -53,6 +53,10 @@ describe('ISSUE-000 — Harness & Migration v8.0 Contract', () => {
 		expect(sql).toContain('ALTER TABLE inventory_logs ENABLE ROW LEVEL SECURITY');
 	});
 
+	it('defines SELECT policy on stock_outlet_items for authenticated users', () => {
+		expect(sql).toContain('CREATE POLICY "Renglones salidas propias o Admin" ON stock_outlet_items FOR SELECT');
+	});
+
 	// --- Audit trigger ---
 	it('defines stock audit trigger on products', () => {
 		expect(sql).toContain('log_product_stock_changes');

@@ -103,6 +103,58 @@ describe('ISSUE-005: Sales History & Returns (+page.server.ts)', () => {
 		expect(mockSupabase.from).toHaveBeenCalledWith('stock_outlets');
 	});
 
+	it('historial load falls back to inventory_logs when stock_outlet_items is empty', async () => {
+		const sampleOutlets = [
+			{
+				id: 'outlet-uuid-empty-items',
+				user_id: 'cajero-uuid-1',
+				total_amount: 27.5,
+				is_canceled: false,
+				canceled_at: null,
+				canceled_by: null,
+				cancel_reason: null,
+				created_at: '2026-09-02T12:00:00Z',
+				stock_outlet_items: []
+			}
+		];
+
+		const sampleLogs = [
+			{
+				id: 'log-1',
+				reference_id: 'outlet-uuid-empty-items',
+				product_id: 'p-2',
+				quantity_changed: -5,
+				change_type: 'VENTA',
+				products: { id: 'p-2', name: 'Lápiz Número 2', sku_code: 'LAP-002', price: 5.5 }
+			}
+		];
+
+		const orderMock = vi.fn().mockResolvedValue({ data: sampleOutlets, error: null });
+		const outletSelectMock = vi.fn().mockReturnValue({ order: orderMock });
+
+		const limitMock = vi.fn().mockResolvedValue({ data: sampleLogs, error: null });
+		const inMock = vi.fn().mockReturnValue({ limit: limitMock });
+		const eqMock = vi.fn().mockReturnValue({ in: inMock });
+		const logSelectMock = vi.fn().mockReturnValue({ eq: eqMock });
+
+		mockSupabase.from.mockImplementation((table: string) => {
+			if (table === 'stock_outlets') return { select: outletSelectMock };
+			if (table === 'inventory_logs') return { select: logSelectMock };
+			return { select: vi.fn() };
+		});
+
+		const event = createMockEvent({ role: 'admin' });
+		const result: any = await historialLoad(event as any);
+
+		expect(result.outlets).toHaveLength(1);
+		expect(result.outlets[0].items).toHaveLength(1);
+		expect(result.outlets[0].items[0].product_name).toBe('Lápiz Número 2');
+		expect(result.outlets[0].items[0].sku_code).toBe('LAP-002');
+		expect(result.outlets[0].items[0].quantity).toBe(5);
+		expect(result.outlets[0].items[0].unit_price).toBe(5.5);
+		expect(result.outlets[0].items[0].subtotal).toBe(27.5);
+	});
+
 	it('historial cancel action invokes cancel_stock_outlet RPC with outlet ID and reason', async () => {
 		const formData = new FormData();
 		formData.append('outlet_id', 'outlet-uuid-1');

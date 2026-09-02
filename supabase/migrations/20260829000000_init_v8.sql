@@ -135,6 +135,16 @@ CREATE POLICY "Costos solo Admin" ON product_costs FOR ALL TO authenticated
 CREATE POLICY "Salidas propias o Admin" ON stock_outlets FOR SELECT TO authenticated
   USING (auth.uid() = user_id OR (auth.jwt() -> 'app_metadata' ->> 'role') = 'admin');
 
+CREATE POLICY "Renglones salidas propias o Admin" ON stock_outlet_items FOR SELECT TO authenticated
+  USING (
+    (auth.jwt() -> 'app_metadata' ->> 'role') = 'admin'
+    OR EXISTS (
+      SELECT 1 FROM stock_outlets so
+      WHERE so.id = stock_outlet_items.outlet_id
+        AND so.user_id = auth.uid()
+    )
+  );
+
 CREATE POLICY "Logs solo Admin" ON inventory_logs FOR SELECT TO authenticated
   USING ((auth.jwt() -> 'app_metadata' ->> 'role') = 'admin');
 
