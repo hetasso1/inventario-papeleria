@@ -44,7 +44,7 @@ Sistema web integral de **Gestión de Inventario y Punto de Venta (POS)** optimi
 
 ## 4. Mapa de Módulos
 
-- **`/login`:** Inicio de sesión seguro con derivación automática de rol mediante Supabase Auth.
+- **`/login`:** Inicio de sesión seguro con derivación automática de rol mediante autenticación local PostgreSQL y cookies de sesión HTTP-only firmadas.
 - **`/caja`:** Terminal de cobro rápido con escáner USB y catálogo rápido.
 - **`/admin/productos`:** Alta, edición, precios, costos confidenciales y stock mínimo de alerta.
 - **`/admin/historial`:** Consulta de ventas históricas, desglose de partidas y anulación justificada con reposición de existencias.
@@ -55,10 +55,10 @@ Sistema web integral de **Gestión de Inventario y Punto de Venta (POS)** optimi
 ## 5. Arquitectura del Sistema
 
 ```
-[ Navegador Web ] ──► [ SvelteKit SSR (hooks.server.ts) ] ──► [ Supabase PostgreSQL 15 ]
-  • BarcodeScanner      • Autenticación y RBAC (Cookies)       • Row Level Security (RLS)
-  • CartTable           • Server-Side Actions                 • RPCs Atómicas (PL/pgSQL)
-  • Admin Views         • Validación de Esquema               • Triggers de Auditoría
+[ Navegador Web ] ──► [ SvelteKit SSR (hooks.server.ts / pg.Pool) ] ──► [ PostgreSQL 15 Local (Docker) ]
+  • BarcodeScanner      • Autenticación y RBAC (Cookies)                 • Row Level Security (RLS)
+  • CartTable           • Server-Side Actions                           • RPCs Atómicas (PL/pgSQL)
+  • Admin Views         • Validación de Esquema                         • Triggers de Auditoría
 ```
 
 ---
@@ -67,7 +67,7 @@ Sistema web integral de **Gestión de Inventario y Punto de Venta (POS)** optimi
 
 - **Funcionalidad Principal:** **100% Implementada y Operativa** conforme al SRS v8.0.
 - **Base de Datos y Seguridad:** Esquema DDL, políticas RLS, triggers y funciones RPC verificadas en PostgreSQL 15.
-- **Pruebas Automatizadas:** 85 pruebas unitarias/integración y 1 prueba E2E en Playwright ejecutadas con éxito.
+- **Pruebas Automatizadas:** 92 pruebas unitarias/integración y 1 prueba E2E en Playwright ejecutadas con éxito.
 - **Mejoras Futuras (UX Backlog):** Redirección automática de la ruta raíz `/`, panel de dashboard administrativo, barra de navegación global y vista previa de imagen en modal.
 
 ---
@@ -180,10 +180,10 @@ PGDATABASE=inventario_dev
 # Supabase (para ejecución de pruebas y desarrollo)
 PUBLIC_SUPABASE_URL=https://your-project-id.supabase.co
 PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
-TEST_ADMIN_EMAIL=admin@papeleria.local
-TEST_ADMIN_PASSWORD=your_admin_secure_password
-TEST_CAJERO_EMAIL=cajero@papeleria.local
-TEST_CAJERO_PASSWORD=your_cajero_secure_password
+TEST_ADMIN_EMAIL=admin@papeleria.com
+TEST_ADMIN_PASSWORD=admin777
+TEST_CAJERO_EMAIL=cajero@papeleria.com
+TEST_CAJERO_PASSWORD=cajero111
 ```
 
 #### 7. Ejecutar Pruebas y Servidor
