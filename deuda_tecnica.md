@@ -57,6 +57,7 @@
     - `src/routes/admin/historial/+page.svelte`
     - `src/routes/admin/historial/+page.server.ts`
     - `src/routes/admin/auditoria/+page.svelte`
+    - `src/routes/admin/auditoria/+page.server.ts`
     - `tests/ui/returns_audit.test.ts`
 
 - [x] ✅ ~~**ISSUE-006: Scanner DOM & Lifecycle Validation**~~
@@ -98,6 +99,7 @@
 
 | Sprint | Issue | Estado | Cambios Clave | Skill Actualizado |
 | :--- | :--- | :--- | :--- | :--- |
+| 12 | ISSUE-005 | ✅ Aprobado | Corrección arquitectónica de /admin/auditoria: migración de consulta directa en navegador/onMount a Server Load SSR (+page.server.ts) vía locals.supabase con join products(name, sku_code) y orden cronológico descendente. Manejo seguro de errores de DB hacia mensaje genérico sin filtrar secretos internos. Eliminación de $lib/supabase/client en auditoría. 4 tests unitarios nuevos en tests/ui/returns_audit.test.ts (Vitest: 92 passed, 0 failed, 1 skipped; Playwright: 1 passed, 0 failed). | N/A |
 | 11 | FER_TEST | ✅ RLS Local Validada / ⚠️ Cloud Pendiente | Saneamiento forense de fer_test en origin/fer_test (force-with-lease). Validación local completa de la política RLS de stock_outlet_items sobre PostgreSQL 15 (Docker): existencia de tabla, RLS habilitado, visibilidad completa para Admin y aislamiento estricto entre Cajeros comprobados empíricamente. RLS local: VALIDADA. RLS Cloud: PENDIENTE POR DISPONIBILIDAD DE SUPABASE. Credenciales Cloud: PENDIENTES DE ROTACIÓN POR DISPONIBILIDAD DE SUPABASE. Suite de regresión pasando al 100% (Vitest: 87/0/1, Playwright: 1/0, git diff --check limpio). | N/A |
 | 10 | ISSUE-009 | ✅ Aprobado | Validación E2E en navegador real (Chromium / Google Chrome) contra Supabase Cloud y runtime Node.js: Login Cajero, RBAC /admin/* -> /caja, escáner USB con foco interactivo en input y button (<100ms), cobro atómico process_stock_outlet, Login Admin, devolución cancel_stock_outlet en /admin/historial, verificación inmutable en /admin/auditoria y corrección de columnas quantity_changed y created_by (Playwright: 1 passed, 0 failed, 0 skipped; Vitest: 85 passed, 0 failed, 1 skipped) | N/A |
 | 9 | ISSUE-008 | ✅ Aprobado | Configuración de runtime de producción explícito con @sveltejs/adapter-node: build exitoso sin warnings de adapter-auto, artefacto en /build ejecutable y validado con node build / npm run start (Vitest: 85 passed, 0 failed, 1 skipped) | N/A |

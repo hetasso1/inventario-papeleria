@@ -1,6 +1,8 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
-	import { supabase } from '$lib/supabase/client';
+	import { invalidateAll } from '$app/navigation';
+	import type { PageData } from './$types';
+
+	let { data }: { data: PageData } = $props();
 
 	interface AuditLog {
 		id: string;
@@ -17,66 +19,21 @@
 		created_at: string;
 	}
 
-	let logs = $state<AuditLog[]>([]);
-	let loading = $state(true);
-	let error = $state<string | null>(null);
+	let logs = $derived<AuditLog[]>(data.logs ?? []);
+	let error = $derived<string | null>(data.error ?? null);
 
 	let selectedType = $state<string>('ALL');
 	let searchQuery = $state('');
+	let refreshing = $state(false);
 
-	async function fetchLogs() {
-		loading = true;
-		error = null;
+	async function refreshLogs() {
+		refreshing = true;
 		try {
-			const { data, error: fetchErr } = await supabase
-				.from('inventory_logs')
-				.select(`
-					id,
-					product_id,
-					change_type,
-					previous_stock,
-					new_stock,
-					quantity_changed,
-					reference_id,
-					created_by,
-					notes,
-					created_at,
-					products (
-						name,
-						sku_code
-					)
-				`)
-				.order('created_at', { ascending: false });
-
-			if (fetchErr) {
-				error = fetchErr.message || 'Error al consultar el registro de auditoría.';
-				logs = [];
-			} else {
-				logs = (data ?? []).map((row: any) => ({
-					id: row.id,
-					product_id: row.product_id,
-					product_name: row.products?.name ?? 'Producto',
-					sku_code: row.products?.sku_code ?? 'N/A',
-					change_type: row.change_type,
-					previous_stock: Number(row.previous_stock),
-					new_stock: Number(row.new_stock),
-					quantity_changed: Number(row.quantity_changed),
-					reference_id: row.reference_id,
-					created_by: row.created_by,
-					notes: row.notes,
-					created_at: row.created_at
-				}));
-			}
-		} catch (e: any) {
-			error = e.message || 'Error de conexión con el servicio de auditoría.';
+			await invalidateAll();
 		} finally {
-			loading = false;
+			refreshing = false;
 		}
 	}
-
-	onMount(() => {
-		fetchLogs();
-	});
 
 	let filteredLogs = $derived(
 		logs.filter((log) => {
@@ -153,11 +110,11 @@
 			<div class="flex items-center gap-3">
 				<button
 					type="button"
-					onclick={fetchLogs}
-					disabled={loading}
+					onclick={refreshLogs}
+					disabled={refreshing}
 					class="inline-flex items-center gap-2 rounded-xl bg-slate-800 px-4 py-2.5 text-xs font-semibold text-slate-200 border border-slate-700 hover:bg-slate-700 transition-colors shadow-sm disabled:opacity-50"
 				>
-					<svg class="h-4 w-4 {loading ? 'animate-spin' : ''}" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+					<svg class="h-4 w-4 {refreshing ? 'animate-spin' : ''}" fill="none" viewBox="0 0 24 24" stroke="currentColor">
 						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
 					</svg>
 					Actualizar Bitácora
@@ -270,19 +227,7 @@
 						</tr>
 					</thead>
 					<tbody class="divide-y divide-slate-800/60 font-mono">
-						{#if loading}
-							<tr>
-								<td colspan="8" class="px-6 py-12 text-center text-slate-500 font-sans">
-									<div class="flex items-center justify-center gap-2">
-										<svg class="animate-spin h-5 w-5 text-indigo-400" fill="none" viewBox="0 0 24 24">
-											<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-											<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
-										</svg>
-										<span>Cargando bitácora de auditoría inmutable...</span>
-									</div>
-								</td>
-							</tr>
-						{:else if filteredLogs.length === 0}
+						{#if filteredLogs.length === 0}
 							<tr>
 								<td colspan="8" class="px-6 py-12 text-center text-slate-500 font-sans">
 									<p class="font-medium text-slate-400">No se encontraron registros de auditoría</p>

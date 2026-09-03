@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { load as historialLoad, actions as historialActions } from '../../src/routes/admin/historial/+page.server';
+import { load as auditoriaLoad } from '../../src/routes/admin/auditoria/+page.server';
 import type { RequestEvent } from '@sveltejs/kit';
 
 /**
@@ -155,6 +156,18 @@ describe('ISSUE-005: Sales History & Returns (+page.server.ts)', () => {
 		expect(result.outlets[0].items[0].subtotal).toBe(27.5);
 	});
 
+	it('historial load handles database error gracefully', async () => {
+		const mockOrder = vi.fn().mockResolvedValue({ data: null, error: { message: 'Database connection error' } });
+		const mockSelect = vi.fn().mockReturnValue({ order: mockOrder });
+		mockSupabase.from.mockReturnValue({ select: mockSelect });
+
+		const event = createMockEvent({ role: 'admin' });
+		const result: any = await historialLoad(event as any);
+
+		expect(result.outlets).toEqual([]);
+		expect(result.error).toBe('Error al cargar el historial de ventas.');
+	});
+
 	it('historial cancel action invokes cancel_stock_outlet RPC with outlet ID and reason', async () => {
 		const formData = new FormData();
 		formData.append('outlet_id', 'outlet-uuid-1');
@@ -229,5 +242,149 @@ describe('ISSUE-005: Audit Logs Contract & Change Types', () => {
 		expect(expectedChangeTypes).toContain('REABASTECIMIENTO');
 		expect(expectedChangeTypes).toContain('AJUSTE_MANUAL');
 		expect(expectedChangeTypes).toContain('MERMA');
+	});
+});
+
+describe('ISSUE-005: Stock Audit Server Load (+page.server.ts)', () => {
+	it('queries inventory_logs using locals.supabase', async () => {
+		let queriedTable = '';
+		const mockOrder = vi.fn().mockResolvedValue({ data: [], error: null });
+		const mockSelect = vi.fn().mockReturnValue({ order: mockOrder });
+		const mockFrom = vi.fn().mockImplementation((table: string) => {
+			queriedTable = table;
+			return { select: mockSelect };
+		});
+
+		const event: any = {
+			locals: {
+				supabase: { from: mockFrom }
+			}
+		};
+
+		const result = await auditoriaLoad(event);
+		expect(mockFrom).toHaveBeenCalledWith('inventory_logs');
+		expect(queriedTable).toBe('inventory_logs');
+		expect(result.error).toBeNull();
+		expect(result.logs).toEqual([]);
+	});
+
+	it('performs join with products, orders by created_at desc, and maps rows to logs', async () => {
+		const rawRows = [
+			{
+				id: 'log-1',
+				product_id: 'prod-1',
+				change_type: 'VENTA',
+				previous_stock: '15.000',
+				new_stock: '10.000',
+				quantity_changed: '-5.000',
+				reference_id: 'outlet-uuid-1',
+				created_by: 'user-cajero-uuid',
+				notes: 'Venta mostrador',
+				created_at: '2026-09-02T10:00:00Z',
+				products: {
+					name: 'Cuaderno Profesional',
+					sku_code: 'SKU-CUAD-01'
+				}
+			},
+			{
+				id: 'log-2',
+				product_id: 'prod-2',
+				change_type: 'DEVOLUCION',
+				previous_stock: 0,
+				new_stock: 2,
+				quantity_changed: 2,
+				reference_id: null,
+				created_by: null,
+				notes: null,
+				created_at: '2026-09-02T11:00:00Z',
+				products: null
+			}
+		];
+
+		let selectParam = '';
+		let orderCol = '';
+		let orderAsc: boolean | undefined;
+
+		const mockOrder = vi.fn().mockImplementation((col: string, opts: any) => {
+			orderCol = col;
+			orderAsc = opts?.ascending;
+			return Promise.resolve({ data: rawRows, error: null });
+		});
+		const mockSelect = vi.fn().mockImplementation((query: string) => {
+			selectParam = query;
+			return { order: mockOrder };
+		});
+		const mockFrom = vi.fn().mockReturnValue({ select: mockSelect });
+
+		const event: any = {
+			locals: {
+				supabase: { from: mockFrom }
+			}
+		};
+
+		const result = await auditoriaLoad(event);
+
+		expect(selectParam).toContain('products');
+		expect(selectParam).toContain('sku_code');
+		expect(orderCol).toBe('created_at');
+		expect(orderAsc).toBe(false);
+
+		expect(result.logs).toHaveLength(2);
+		expect(result.logs[0]).toEqual({
+			id: 'log-1',
+			product_id: 'prod-1',
+			product_name: 'Cuaderno Profesional',
+			sku_code: 'SKU-CUAD-01',
+			change_type: 'VENTA',
+			previous_stock: 15,
+			new_stock: 10,
+			quantity_changed: -5,
+			reference_id: 'outlet-uuid-1',
+			created_by: 'user-cajero-uuid',
+			notes: 'Venta mostrador',
+			created_at: '2026-09-02T10:00:00Z'
+		});
+		expect(result.logs[1].product_name).toBe('Producto no especificado');
+		expect(result.logs[1].sku_code).toBe('N/A');
+		expect(result.error).toBeNull();
+	});
+
+	it('converts database errors into a generic error message without leaking internal details (e.g. DB_INTERNAL_SECRET)', async () => {
+		const internalSecretError = {
+			message: 'Fatal error in table public.inventory_logs: DB_INTERNAL_SECRET - connection timeout at postgresql://user:pwd@db:5432'
+		};
+
+		const mockOrder = vi.fn().mockResolvedValue({ data: null, error: internalSecretError });
+		const mockSelect = vi.fn().mockReturnValue({ order: mockOrder });
+		const mockFrom = vi.fn().mockReturnValue({ select: mockSelect });
+
+		const event: any = {
+			locals: {
+				supabase: { from: mockFrom }
+			}
+		};
+
+		const result = await auditoriaLoad(event);
+
+		expect(result.logs).toEqual([]);
+		expect(result.error).toBeTruthy();
+		expect(typeof result.error).toBe('string');
+		expect(result.error).toBe('No fue posible cargar el registro de auditoría.');
+		expect(JSON.stringify(result)).not.toContain('DB_INTERNAL_SECRET');
+		expect(JSON.stringify(result)).not.toContain('postgresql://');
+	});
+
+	it('does not duplicate route authorization guards and delegates /admin/* protection to hooks.server.ts', async () => {
+		const mockOrder = vi.fn().mockResolvedValue({ data: [], error: null });
+		const mockSelect = vi.fn().mockReturnValue({ order: mockOrder });
+		const mockFrom = vi.fn().mockReturnValue({ select: mockSelect });
+
+		const eventWithoutRole: any = {
+			locals: {
+				supabase: { from: mockFrom }
+			}
+		};
+
+		await expect(auditoriaLoad(eventWithoutRole)).resolves.not.toThrow();
 	});
 });
