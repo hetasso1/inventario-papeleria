@@ -8,11 +8,11 @@
 ---
 
 ## 2. Estado del Repositorio Remoto y Local Post-Cierre
-- **`fer_test` (local):** `be057284bb001c7f116aa8b9ddacfe330e47a0ec`
-- **`origin/fer_test` (remoto):** `be057284bb001c7f116aa8b9ddacfe330e47a0ec` *(actualizado con force-with-lease)*
+- **`fer_test` (local):** `a50d45965a3f5400d4e330e8d32f195c94235546`
+- **`origin/fer_test` (remoto):** `a50d45965a3f5400d4e330e8d32f195c94235546` *(publicado con force-with-lease)*
 - **`main` / `origin/main`:** `bbca07c9d96bbab219d85b732099b2cffc42076e` *(intacta)*
 - **`harold_test` / `origin/harold_test`:** `bbca07c9d96bbab219d85b732099b2cffc42076e` *(intacta)*
-- **Backup temporal:** `backup/fer_test_before_secret_cleanup` fue eliminado definitivamente.
+- **Backup temporal:** `backup/fer_test_before_secret_cleanup` eliminado definitivamente.
 
 ---
 
@@ -26,32 +26,40 @@
 
 ---
 
-## 4. Estado de Acciones Externas (Supabase Cloud)
+## 4. Estado de Validación RLS y Credenciales
 
-### A. Rotación de Credenciales Expuestas
-- **Estado:**
-  ```text
-  BLOQUEADO: falta acceso administrativo a Supabase para rotar contraseñas de cuentas de prueba y claves de API.
-  ```
-- **Detalle técnico:** En el entorno local se dispone únicamente de las credenciales de cliente (`anon_key` y contraseñas de usuario). La rotación de las contraseñas de los usuarios (`admin@papeleria.com`, `cajero@papeleria.com`) y el rolado de la clave de API requieren permisos de nivel organización/proyecto en el Dashboard de Supabase Cloud o un `SUPABASE_ACCESS_TOKEN` para la CLI de Supabase, los cuales no están provistos en el entorno.
+### A. RLS Local: VALIDADA
+- **Infraestructura:** Contenedor Docker `pg_integration_test` (PostgreSQL 15-alpine en puerto 5433), utilizando el mecanismo estándar de pruebas de integración del proyecto.
+- **Migraciones aplicadas:**
+  1. `supabase/migrations/20260829000000_init_v8.sql` (baseline inmutable).
+  2. `supabase/migrations/20260902000000_fix_stock_outlet_items_rls.sql` (migración incremental RLS).
+- **Comprobaciones estructurales y de comportamiento real ejecutadas:**
+  1. **Existencia de tabla:** `stock_outlet_items` existe en `information_schema.tables` (APROBADO).
+  2. **RLS habilitado:** `relrowsecurity = 't'` verificado en `pg_class` para `stock_outlet_items` (APROBADO).
+  3. **Política activa:** Política `"Renglones salidas propias o Admin"` para comando `SELECT` confirmada en `pg_policies` (APROBADO).
+  4. **Comportamiento Admin:** Usuario con rol `admin` consultó la tabla y obtuvo la totalidad de partidas de todas las salidas registradas (2 de 2 partidas, APROBADO).
+  5. **Comportamiento Cajero:** Usuario Cajero 1 consultó la tabla y obtuvo exclusivamente las partidas asociadas a sus propias salidas (1 de 1 partida, APROBADO).
+  6. **Aislamiento entre Cajeros:** Usuario Cajero 1 intentó consultar directamente por ID la partida perteneciente a la salida de Cajero 2; PostgreSQL retornó 0 filas, confirmando el aislamiento estricto y ausencia de filtraciones (APROBADO).
 
-### B. Migración RLS en Supabase Cloud
-- **Estado:**
-  ```text
-  BLOQUEADO: no existe acceso operativo para aplicar/verificar la migración RLS en Supabase Cloud.
-  ```
-- **Detalle técnico:** La migración incremental [supabase/migrations/20260902000000_fix_stock_outlet_items_rls.sql](file:///d:/proyectos%20$/inventario_papeleria/supabase/migrations/20260902000000_fix_stock_outlet_items_rls.sql) existe y está validada localmente en PostgreSQL. No se cuenta con una cadena de conexión directa PostgreSQL (`DATABASE_URL`) ni con token de acceso a la API administrativa para ejecutar DDL de forma remota.
-- **Mecanismo de resiliencia activo:** En Supabase Cloud, el endpoint `admin/historial` continúa operando con éxito gracias al **fallback hacia `inventory_logs`** que reconstruye los artículos vendidos en caso de que la política RLS no esté desplegada en la base de datos remota.
+### B. RLS Cloud: PENDIENTE POR DISPONIBILIDAD DE SUPABASE
+- Supabase Cloud se encuentra temporalmente inaccesible para operaciones administrativas DDL.
+- No se marca como resuelta basándose en la prueba local.
+- La migración incremental [supabase/migrations/20260902000000_fix_stock_outlet_items_rls.sql](file:///d:/proyectos%20$/inventario_papeleria/supabase/migrations/20260902000000_fix_stock_outlet_items_rls.sql) queda lista para su despliegue en el SQL Editor de Cloud una vez restablecido el acceso.
+- El servidor mantiene activo el fallback de contingencia hacia `inventory_logs`.
+
+### C. Credenciales Cloud: PENDIENTES DE ROTACIÓN POR DISPONIBILIDAD DE SUPABASE
+- No se cuenta con acceso administrativo a Supabase Cloud para rotar las contraseñas de las cuentas de prueba ni para rolado de claves de API.
+- No se marcan las credenciales como resueltas.
 
 ---
 
-## 5. Validación de Pruebas Automáticas
+## 5. Validación de Pruebas de Regresión
 
 - **Vitest (`npm run test`):**
   - **10 passed | 1 skipped (11 test files)**
   - **87 passed / 0 failed / 1 skipped (88 tests)**
 - **Playwright E2E (`npx playwright test`):**
-  - **1 passed / 0 failed** (Flujo vertical crítico completo ejecutado en Chromium en 9.1s)
+  - **1 passed / 0 failed** (Flujo vertical crítico completado en 9.9s)
 - **Formato Git (`git diff --check`):**
   - Salida completamente vacía (código de salida 0).
 - **Working Tree (`git status --short`):**
