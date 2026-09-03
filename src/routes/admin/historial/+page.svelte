@@ -312,15 +312,29 @@
 									</tr>
 								</thead>
 								<tbody class="divide-y divide-slate-800">
-									{#each selectedOutletForDetail.items as item}
+									{#if selectedOutletForDetail.items.length === 0}
 										<tr>
-											<td class="px-3 py-2.5 font-mono text-indigo-300">{item.sku_code}</td>
-											<td class="px-3 py-2.5 font-semibold text-slate-100">{item.product_name}</td>
-											<td class="px-3 py-2.5 text-center font-mono">{item.quantity.toFixed(3)}</td>
-											<td class="px-3 py-2.5 text-right font-mono">${item.unit_price.toFixed(2)}</td>
-											<td class="px-3 py-2.5 text-right font-mono font-bold text-emerald-400">${item.subtotal.toFixed(2)}</td>
+											<td colspan="5" class="px-4 py-8 text-center text-slate-400">
+												<div class="flex flex-col items-center justify-center gap-1.5">
+													<svg class="h-6 w-6 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+														<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
+													</svg>
+													<p class="font-medium text-slate-300">No se encontraron artículos para esta venta</p>
+													<p class="text-[11px] text-slate-500 max-w-sm">Si los productos fueron cobrados, asegúrese de que la política RLS en <span class="font-mono text-indigo-400">stock_outlet_items</span> esté aplicada en la base de datos.</p>
+												</div>
+											</td>
 										</tr>
-									{/each}
+									{:else}
+										{#each selectedOutletForDetail.items as item}
+											<tr>
+												<td class="px-3 py-2.5 font-mono text-indigo-300">{item.sku_code}</td>
+												<td class="px-3 py-2.5 font-semibold text-slate-100">{item.product_name}</td>
+												<td class="px-3 py-2.5 text-center font-mono">{item.quantity.toFixed(3)}</td>
+												<td class="px-3 py-2.5 text-right font-mono">${item.unit_price.toFixed(2)}</td>
+												<td class="px-3 py-2.5 text-right font-mono font-bold text-emerald-400">${item.subtotal.toFixed(2)}</td>
+											</tr>
+										{/each}
+									{/if}
 								</tbody>
 							</table>
 						</div>

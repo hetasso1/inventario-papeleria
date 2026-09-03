@@ -333,6 +333,21 @@ Antes de liberar el sistema a los usuarios finales en mostrador, valide los sigu
 - **Causa:** Otro proceso está utilizando el puerto 3000.
 - **Solución:** Defina un puerto alternativo mediante la variable `PORT=3001 node build`.
 
+### 6. Artículos no visibles en el Historial de Ventas (0 productos / tabla vacía en detalle)
+- **Causa:** La tabla `stock_outlet_items` tiene Row Level Security (RLS) activo pero le falta la política permisiva de `SELECT` para usuarios autenticados.
+- **Solución:** Ejecute en el **SQL Editor** de Supabase Cloud la migración [20260902000000_fix_stock_outlet_items_rls.sql](file:///supabase/migrations/20260902000000_fix_stock_outlet_items_rls.sql):
+  ```sql
+  CREATE POLICY "Renglones salidas propias o Admin" ON stock_outlet_items FOR SELECT TO authenticated
+    USING (
+      (auth.jwt() -> 'app_metadata' ->> 'role') = 'admin'
+      OR EXISTS (
+        SELECT 1 FROM stock_outlets so
+        WHERE so.id = stock_outlet_items.outlet_id
+          AND so.user_id = auth.uid()
+      )
+    );
+  ```
+
 ---
 
 ## 17. Checklist de Seguridad Antes de Publicar

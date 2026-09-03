@@ -48,17 +48,56 @@ export const load: PageServerLoad = async ({ locals }) => {
 		};
 	}
 
-	const sanitizedOutlets = (outlets ?? []).map((o: any) => ({
-		id: o.id,
-		user_id: o.user_id,
-		total_amount: Number(o.total_amount),
-		is_canceled: Boolean(o.is_canceled),
-		canceled_at: o.canceled_at,
-		canceled_by: o.canceled_by,
-		cancel_reason: o.cancel_reason,
-		idempotency_key: o.idempotency_key,
-		created_at: o.created_at,
-		items: (o.stock_outlet_items ?? []).map((item: any) => ({
+	// If any outlet is missing items (e.g. if stock_outlet_items RLS policy is not yet applied),
+	// recover the sale items from inventory_logs which records every VENTA with product reference
+	const outletsNeedingItems = (outlets ?? []).filter((o: any) => !o.stock_outlet_items || o.stock_outlet_items.length === 0);
+	const logsByOutlet: Record<string, any[]> = {};
+
+	if (outletsNeedingItems.length > 0) {
+		const outletIds = outletsNeedingItems.map((o: any) => o.id);
+		const { data: logs } = await locals.supabase
+			.from('inventory_logs')
+			.select(`
+				id,
+				reference_id,
+				product_id,
+				quantity_changed,
+				change_type,
+				products (
+					id,
+					name,
+					sku_code,
+					price
+				)
+			`)
+			.eq('change_type', 'VENTA')
+			.in('reference_id', outletIds)
+			.limit(10000);
+
+		if (logs) {
+			for (const log of logs) {
+				if (!log.reference_id) continue;
+				if (!logsByOutlet[log.reference_id]) {
+					logsByOutlet[log.reference_id] = [];
+				}
+				const prod = (log as any).products;
+				const qty = Math.abs(Number(log.quantity_changed));
+				const unitPrice = Number(prod?.price ?? 0);
+				logsByOutlet[log.reference_id].push({
+					id: log.id,
+					product_id: log.product_id,
+					product_name: prod?.name ?? 'Producto',
+					sku_code: prod?.sku_code ?? 'N/A',
+					quantity: qty,
+					unit_price: unitPrice,
+					subtotal: qty * unitPrice
+				});
+			}
+		}
+	}
+
+	const sanitizedOutlets = (outlets ?? []).map((o: any) => {
+		const directItems = (o.stock_outlet_items ?? []).map((item: any) => ({
 			id: item.id,
 			product_id: item.product_id,
 			product_name: item.products?.name ?? 'Producto',
@@ -66,8 +105,23 @@ export const load: PageServerLoad = async ({ locals }) => {
 			quantity: Number(item.quantity),
 			unit_price: Number(item.unit_price),
 			subtotal: Number(item.subtotal)
-		}))
-	}));
+		}));
+
+		const items = directItems.length > 0 ? directItems : (logsByOutlet[o.id] ?? []);
+
+		return {
+			id: o.id,
+			user_id: o.user_id,
+			total_amount: Number(o.total_amount),
+			is_canceled: Boolean(o.is_canceled),
+			canceled_at: o.canceled_at,
+			canceled_by: o.canceled_by,
+			cancel_reason: o.cancel_reason,
+			idempotency_key: o.idempotency_key,
+			created_at: o.created_at,
+			items
+		};
+	});
 
 	return {
 		outlets: sanitizedOutlets
