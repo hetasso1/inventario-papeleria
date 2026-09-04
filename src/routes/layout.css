@@ -1,1 +1,83 @@
 @import 'tailwindcss';
+
+@theme {
+	--color-background: var(--background);
+	--color-foreground: var(--foreground);
+	--color-card: var(--card);
+	--color-card-foreground: var(--card-foreground);
+	--color-popover: var(--popover);
+	--color-popover-foreground: var(--popover-foreground);
+	--color-primary: var(--primary);
+	--color-primary-foreground: var(--primary-foreground);
+	--color-secondary: var(--secondary);
+	--color-secondary-foreground: var(--secondary-foreground);
+	--color-muted: var(--muted);
+	--color-muted-foreground: var(--muted-foreground);
+	--color-accent: var(--accent);
+	--color-accent-foreground: var(--accent-foreground);
+	--color-destructive: var(--destructive);
+	--color-destructive-foreground: var(--destructive-foreground);
+	--color-border: var(--border);
+	--color-input: var(--input);
+	--color-ring: var(--ring);
+
+	--radius-sm: calc(var(--radius) - 4px);
+	--radius-md: calc(var(--radius) - 2px);
+	--radius-lg: var(--radius);
+	--radius-xl: calc(var(--radius) + 4px);
+}
+
+:root,
+.dark,
+:root[class~='dark'] {
+	--radius: 0.5rem;
+
+	/* Shadcn Neutral Light Palette */
+	--background: #fcfcfc;
+	/* Fondo gris perla ultra suave */
+	--foreground: #09090b;
+	/* Texto negro casi puro */
+
+	--card: #ffffff;
+	/* Contenedores blanco puro */
+	--card-foreground: #09090b;
+
+	--popover: #ffffff;
+	--popover-foreground: #09090b;
+
+	--primary: #18181b;
+	/* Botones principales negro elegante */
+	--primary-foreground: #fafafa;
+
+	--secondary: #f4f4f5;
+	/* Fondos secundarios de botones y badges */
+	--secondary-foreground: #18181b;
+
+	--muted: #f4f4f5;
+	/* Sidebar y fondos suaves */
+	--muted-foreground: #71717a;
+	/* Texto secundario/labels gris medio */
+
+	--accent: #f4f4f5;
+	--accent-foreground: #18181b;
+
+	--destructive: #ef4444;
+	--destructive-foreground: #fafafa;
+
+	--border: #e4e4e7;
+	/* Bordes delgados finos tipo Shadcn */
+	--input: #e4e4e7;
+	--ring: #18181b;
+}
+
+* {
+	border-color: var(--border);
+}
+
+body {
+	background-color: var(--background) !important;
+	color: var(--foreground) !important;
+	font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+}
