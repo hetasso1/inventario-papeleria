@@ -1,63 +1,78 @@
 # Documento de Arquitectura de Software — Sistema POS e Inventario
 
+**Especificación de Arquitectura Vigente:** Alineada a **SRS v8.1** (Arquitectura Local y Offline sobre PostgreSQL 15)
+**Referencia Histórica:** SRS v8.0 (Supabase Cloud BaaS original, preservado para trazabilidad)
+**Rama Canónica:** `harold_test`
+**Estado:** Arquitectura Oficial Vigente de Producción Local
+
 ---
 
 ## 1. Visión General del Sistema
 
-El sistema implementa una arquitectura en capas basada en **SvelteKit**, con renderizado del lado del servidor (**SSR**), delegación transaccional en **PostgreSQL (Supabase Cloud)** y control de acceso basado en roles (**RBAC**) respaldado por políticas de seguridad a nivel de fila (**RLS**) y funciones almacenadas (**RPCs**).
+El sistema implementa una arquitectura en capas basada en **SvelteKit**, con renderizado del lado del servidor (**SSR**), delegación transaccional directa en **PostgreSQL 15 local (Docker / pg.Pool)** y control de acceso basado en roles (**RBAC**) respaldado por políticas de seguridad a nivel de fila (**RLS**) y funciones almacenadas (**RPCs**).
+
+> 📌 **Evolución Arquitectónica (v8.0 → v8.1):**
+> - **Arquitectura Vigente (SRS v8.1):** Operación **100% local y offline**. Persistencia en PostgreSQL 15 bajo Docker (`localhost:5433`, base `inventario_dev`), conexión nativa mediante driver `pg.Pool`, autenticación local con contraseñas cifradas (PBKDF2) en `auth.users` y sesiones mediante cookies HTTP-only firmadas con HMAC-SHA256 (`app_session`).
+> - **Línea Base Histórica (SRS v8.0):** Especificación inicial respaldada por servicios administrados en la nube (Supabase Cloud, GoTrue Cloud y PostgREST). Dicha configuración se conserva en la documentación histórica como referencia de origen, pero **no constituye una dependencia de runtime de la aplicación vigente**.
 
 ```text
 ┌────────────────────────────────────────────────────────────────────────────────────────┐
 │ 1. CLIENTE WEB (Navegador / Chrome / Escáner USB HID)                                  │
 │    - UI reactiva en Svelte 5 / TailwindCSS                                            │
 │    - Captura global de eventos de teclado (Keyboard Wedge <100ms)                      │
+│    - CERO llamadas externas salientes (src/lib/supabase/client.ts neutralizado)        │
 └───────────────────────────────────────────┬────────────────────────────────────────────┘
-                                            │ Peticiones HTTP / Form Actions / SSE
+                                            │ Peticiones HTTP / Form Actions / Cookies HTTP-only
                                             ▼
 ┌────────────────────────────────────────────────────────────────────────────────────────┐
 │ 2. SERVIDOR DE APLICACIÓN (Node.js + @sveltejs/adapter-node)                           │
 │    - SSR & Server Load Functions (+page.server.ts)                                     │
-│    - Interceptores y Guardias RBAC (hooks.server.ts)                                   │
+│    - Interceptores y Guardias RBAC (hooks.server.ts con redirección 303)               │
+│    - Autenticación Local y Verificación de Firma HMAC-SHA256 en cookies               │
 │    - Server Actions (Manejo de formularios, cobro e idempotencia)                      │
-│    - Validación estricta y recálculo de precios desde la fuente de verdad              │
+│    - Adaptador de base de datos nativo mediante pg.Pool                                │
 └───────────────────────────────────────────┬────────────────────────────────────────────┘
-                                            │ Cliente Supabase JS (Anon Key + JWT)
+                                            │ Transacciones con Aislamiento RLS (SET LOCAL)
                                             ▼
 ┌────────────────────────────────────────────────────────────────────────────────────────┐
-│ 3. CAPA DE SERVICIOS SUPABASE (BaaS / Cloud)                                           │
-│    - Supabase Auth (Gestión de sesiones, tokens JWT y app_metadata.role)               │
-│    - PostgREST API Gateway & RPC Dispatcher                                            │
+│ 3. CAPA DE SEGURIDAD Y CONTEXTO RLS (PostgreSQL Local)                                │
+│    - SET LOCAL ROLE authenticated (Rol no-superuser sin BYPASSRLS)                     │
+│    - SET LOCAL "request.jwt.claims" = '{"sub": "...", "role": "...", "app_metadata":..}'│
+│    - Funciones de compatibilidad auth.uid() y auth.jwt() consumiendo claims locales    │
 └───────────────────────────────────────────┬────────────────────────────────────────────┘
-                                            │ Conexión PostgreSQL (SQL Transaccional)
+                                            │ Socket TCP (localhost:5433 / inventario_dev)
                                             ▼
 ┌────────────────────────────────────────────────────────────────────────────────────────┐
-│ 4. MOTOR DE BASE DE DATOS (PostgreSQL 15+)                                             │
+│ 4. MOTOR DE BASE DE DATOS LOCAL (PostgreSQL 15 en Docker: pg_integration_test)         │
 │    ├── Tablas de Dominio: products, product_costs, stock_outlets, stock_outlet_items   │
 │    ├── Bitácora Inmutable: inventory_logs                                              │
-│    ├── Capa de Autorización: Row Level Security (RLS) en todas las tablas              │
+│    ├── Capa de Autorización: Row Level Security (RLS) activo en las 5 tablas           │
 │    ├── Capa Transaccional: Funciones RPC SECURITY DEFINER                              │
 │    │   ├── upsert_product_with_cost(...)                                               │
-│    │   ├── process_stock_outlet(...) (Validación de stock, cálculo y deducción)        │
-│    │   └── cancel_stock_outlet(...) (Restauración de stock y anulación)                │
-│    └── Triggers Automáticos: Asignación de rol inicial al crear usuario                │
+│    │   ├── process_stock_outlet(...) (Validación de stock, cálculo y deducción atómica)│
+│    │   └── cancel_stock_outlet(...) (Restauración de stock y anulación por Admin)      │
+│    └── Triggers Automáticos: Auditoría inmutable de stock (trg_audit_product_stock)    │
 └────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 2. Stack Tecnológico
+## 2. Stack Tecnológico Vigente
 
-| Tecnología | Versión / Tipo | Rol y Responsabilidad Arquitectónica |
+| Tecnología | Versión / Tipo | Rol y Responsabilidad Arquitectónica Vigente |
 | :--- | :--- | :--- |
-| **SvelteKit** | `^2.49.2` | Framework Full-Stack; gestión de rutas, SSR, Server Actions y API routing. |
-| **Svelte** | `^5.51.3` | Biblioteca de UI reactiva (soporte de Runes y ciclo de vida de componentes). |
-| **TypeScript** | `^5.9.3` | Tipado estático en frontend, backend y definición de esquemas de datos. |
+| **SvelteKit** | `^2.49.2` | Framework Full-Stack; gestión de rutas, SSR, Server Actions y middleware de autorización. |
+| **Svelte** | `^5.51.3` | Biblioteca de UI reactiva con soporte de Runes y ciclo de vida de componentes. |
+| **TypeScript** | `^5.9.3` | Tipado estático en frontend, servidor y definición de esquemas de datos. |
 | **TailwindCSS** | `^4.1.18` | Motor de estilos utilitarios y diseño responsivo de la interfaz. |
-| **Supabase JS** | `^2.97.0` | SDK de integración con Supabase Auth, PostgREST y llamadas a RPCs. |
-| **PostgreSQL** | `15+` | Motor de base de datos relacional; persistencia, RLS, triggers y transacciones ACID. |
-| **Adapter Node**| `@sveltejs/adapter-node ^5.5.7` | Adaptador de compilación para generar un servidor Node.js standalone (`/build`). |
-| **Vitest** | `^4.1.11` | Runner de pruebas unitarias, de integración DOM y validación de RPCs. |
-| **Playwright** | `^1.58.2` | Framework de pruebas End-to-End en navegador real contra el servidor Node.js. |
+| **Driver PostgreSQL (`pg`)** | `^8.23.0` | Driver nativo de conexión TCP con `pg.Pool`; transacciones ACID, aislamiento RLS y RPCs. |
+| **PostgreSQL 15 Local** | `15-alpine` | Motor relacional alojado en contenedor Docker local (`pg_integration_test`, puerto 5433, base `inventario_dev`). Persistencia, RLS, triggers y transacciones atómicas. |
+| **Autenticación Local** | PBKDF2 + HMAC | Autenticación local mediante contraseñas hasheadas en `auth.users` y cookies de sesión HTTP-only firmadas con HMAC-SHA256 (`app_session`). |
+| **Adapter Node** | `@sveltejs/adapter-node ^5.5.7` | Adaptador de compilación para servidor Node.js standalone ejecutable (`/build`). |
+| **Vitest** | `^4.1.11` | Runner de pruebas unitarias, de integración DB y contratos de servidor (92 passed, 1 skipped). |
+| **Playwright** | `^1.58.2` | Framework de pruebas End-to-End en navegador Chromium real contra el servidor compilado (1 passed). |
+
+> ℹ️ *Nota de Compatibilidad:* Las dependencias `@supabase/ssr` y `@supabase/supabase-js` permanecen registradas en el repositorio para suites de verificación de integración opcionales, pero han sido completamente reemplazadas en el runtime funcional de la aplicación por el adaptador nativo `pg.Pool`.
 
 ---
 
@@ -69,70 +84,79 @@ El frontend reside bajo `src/routes/` y `src/lib/components/`:
 src/
 ├── lib/
 │   ├── components/
-│   │   ├── admin/       # Modales de productos, edición de costos y detalle de ventas
-│   │   ├── auth/        # Formularios de inicio de sesión y guardias de vista
+│   │   ├── admin/       # Modales de productos, edición de costos confidenciales y detalle de ventas
+│   │   ├── auth/        # Formularios de inicio de sesión y validación visual
 │   │   └── caja/        # BarcodeScanner, CartTable, ProductCard y CheckoutModal
-│   └── supabase/        # Inicialización de clientes (client.ts y server.ts)
+│   └── supabase/        # Adaptador server-side local (server.ts) y stub de cliente (client.ts)
 └── routes/
-    ├── +layout.svelte   # Layout global (Navbar, sesión y estado reactivo)
-    ├── login/           # Pantalla de autenticación pública
-    ├── caja/            # Terminal de Punto de Venta (POS) para cajeros y admin
-    └── admin/           # Módulos protegidos para administradores
-        ├── productos/   # Gestión de catálogo, precios, costos y desactivación
-        ├── historial/   # Consulta de salidas y procesamiento de devoluciones
-        └── auditoria/   # Consulta forense inmutable de movimientos de stock
+    ├── +layout.svelte   # Layout global (Navbar reactiva, sesión y controles de usuario)
+    ├── login/           # Pantalla de autenticación pública local
+    ├── caja/            # Terminal de Punto de Venta (POS) para cajeros y administradores
+    └── admin/           # Módulos protegidos exclusivamente para administradores
+        ├── productos/   # Gestión de catálogo, precios, costos confidenciales y Soft Delete
+        ├── historial/   # Consulta de salidas y procesamiento de cancelaciones / devoluciones
+        └── auditoria/   # Consulta forense inmutable de movimientos de almacén (SSR)
 ```
 
 ### Principios de UI:
-- **Separación de Estado:** El carrito de compra se mantiene en memoria reactiva local durante la sesión de cobro y solo se envía al servidor al presionar *Cobrar*.
-- **Sin Lógica de Negocio Sensible en Cliente:** La interfaz no calcula totales definitivos ni valida stock por su cuenta; envía las partidas al backend donde se audita el precio oficial y la disponibilidad física.
+- **Separación de Estado:** El carrito de compra se mantiene en memoria reactiva local durante la sesión de cobro y solo se transmite al servidor al presionar *Cobrar*.
+- **Sin Lógica de Negocio Sensible en Cliente:** La interfaz no calcula precios finales ni valida existencias de forma autoritativa; despacha las partidas al servidor SvelteKit, donde PostgreSQL verifica el precio oficial y la disponibilidad física.
+- **Cliente de Navegador Neutralizado:** `src/lib/supabase/client.ts` exporta `null`. Ningún componente de la interfaz realiza peticiones directas a APIs de base de datos; todo el flujo de datos viaja por endpoints de SvelteKit Server.
 
 ---
 
-## 4. Servidor SvelteKit (SSR y Server Actions)
+## 4. Servidor SvelteKit (SSR, Middleware y Server Actions)
 
-El servidor de aplicación actúa como intermediario seguro entre el navegador y la base de datos:
+El servidor de aplicación actúa como intermediario seguro y autoritativo:
 
 1. **`hooks.server.ts`:**
-   - Intercepta cada solicitud entrante.
-   - Extrae el token JWT de la sesión y consulta el perfil del usuario.
-   - Aplica las políticas de guardia de ruta (**Guardias RBAC**).
-   - Inyecta el usuario autenticado y su rol en `event.locals`.
+   - Intercepta cada solicitud HTTP entrante.
+   - Lee la cookie HTTP-only `app_session`, valida su firma criptográfica HMAC-SHA256 y extrae la identidad del usuario y su rol.
+   - Aplica los guardias de ruta (**Guardias RBAC**):
+     - Usuarios sin sesión intentando acceder a `/admin/*` o `/caja/*` son redirigidos con HTTP 303 a `/login`.
+     - Usuarios con rol `cajero` intentando acceder a cualquier ruta `/admin/*` son redirigidos con HTTP 303 a `/caja`.
+     - Usuarios autenticados accediendo a `/login` son redirigidos con HTTP 303 a `/caja`.
+   - Inyecta `event.locals.user`, `event.locals.role` y el cliente de base de datos contextualizado en `event.locals.supabase`.
 2. **`+page.server.ts` (Server Load Functions):**
-   - Ejecuta consultas del lado del servidor antes de renderizar la vista.
-   - Si la ruta requiere privilegios administrativos y el usuario es cajero, interrumpe el ciclo y responde con una redirección HTTP 303.
+   - Ejecuta consultas server-side antes de renderizar la vista, garantizando que datos sensibles (como `product_costs`) nunca viajen al cliente a menos que el usuario sea Administrador.
 3. **Server Actions:**
-   - Procesan mutaciones críticas (inicio de sesión, checkout, actualización de productos y cancelaciones).
-   - Validan entradas de usuario y ejecutan las llamadas a las funciones almacenadas (RPCs) de PostgreSQL.
+   - Procesan mutaciones críticas (login, logout, cobro en caja, alta/edición de catálogo, cancelaciones).
+   - Validan entradas y ejecutan llamadas a los procedimientos almacenados (RPCs) en transacciones de PostgreSQL.
 
 ---
 
-## 5. Arquitectura de Autenticación
+## 5. Arquitectura de Autenticación Local
 
-La autenticación utiliza **Supabase Auth** con persistencia de tokens en cookies de sesión HTTP seguras:
+La autenticación opera de forma **100% autónoma y local** sin depender de servicios externos como GoTrue o Supabase Auth Cloud:
 
 ```text
-[ Browser ] ─── (1) POST /login (email, password) ───► [ SvelteKit SSR ]
-                                                              │
-                                            (2) signInWithPassword()
-                                                              ▼
-                                                     [ Supabase Auth ]
-                                                              │
-                                            (3) Retorna JWT + app_metadata
-                                                              ▼
-[ Browser ] ◄── (4) Set-Cookie (sb-access-token) ────── [ SvelteKit SSR ]
+[ Browser ] ─── (1) POST /login (email, password) ────────► [ SvelteKit SSR ]
+                                                                   │
+                                                (2) Valida hash PBKDF2
+                                                    en auth.users local
+                                                                   ▼
+                                                            [ PostgreSQL ]
+                                                                   │
+                                                (3) Retorna usuario y rol
+                                                                   ▼
+[ Browser ] ◄── (4) Set-Cookie (app_session firmada) ─────── [ SvelteKit SSR ]
 ```
 
-### Derivación de Roles (`app_metadata.role`):
-- Los roles de usuario (**`admin`** o **`cajero`**) se almacenan en los metadatos protegidos de la cuenta (`raw_app_meta_data` en PostgreSQL).
-- **Seguridad:** A diferencia de `user_metadata` (que el usuario final puede editar desde el cliente), `app_metadata` solo puede ser modificado por administradores o mediante triggers `SECURITY DEFINER` en la base de datos.
-- El servidor SvelteKit lee `user.app_metadata.role` en cada petición para conceder o denegar el acceso.
+### 5.1 Credenciales y Almacenamiento
+- Los usuarios se registran en la tabla `auth.users` de PostgreSQL local:
+  - `admin@papeleria.com` (Rol: `admin`)
+  - `cajero@papeleria.com` (Rol: `cajero`)
+- Las contraseñas se almacenan mediante hash seguro **PBKDF2-HMAC-SHA512** con salt criptográfico de 16 bytes y 100,000 iteraciones (`salt:hash`). En ningún caso se persiste texto plano.
+
+### 5.2 Tokens de Sesión y Cookies HTTP-only
+- Tras la validación de credenciales, el servidor emite un token de sesión firmado criptográficamente con HMAC-SHA256 (`SESSION_SECRET`).
+- Payload del token: `{ id, email, app_metadata: { role: 'admin' | 'cajero' }, exp }`.
+- Se almacena en la cookie `app_session` con atributos: `HttpOnly=true`, `SameSite=Lax`, `Path=/`, `Secure=false` (en desarrollo local).
+- El cierre de sesión en `/logout` elimina la cookie `app_session` y redirige a `/login`.
 
 ---
 
 ## 6. Control de Acceso Basado en Roles (RBAC)
-
-El sistema implementa dos niveles de control:
 
 ```text
                            Solicitud HTTP a /admin/*
@@ -207,7 +231,7 @@ El modelo relacional está optimizado para garantizar la integridad referencial 
   │ stock_outlet_items (Partidas individuales)             │
   ├────────────────────────────────────────────────────────┤
   │ id: UUID (PK)                                          │
-  │ stock_outlet_id: UUID (FK -> stock_outlets.id)         │
+  │ outlet_id: UUID (FK -> stock_outlets.id)               │
   │ product_id: UUID (FK -> products.id)                   │
   │ quantity: NUMERIC(10,3)                                │
   │ unit_price: NUMERIC(10,2)                              │
@@ -219,12 +243,12 @@ El modelo relacional está optimizado para garantizar la integridad referencial 
   ├────────────────────────────────────────────────────────┤
   │ id: UUID (PK)                                          │
   │ product_id: UUID (FK -> products.id)                   │
-  │ movement_type: movement_type (VENTA, DEVOLUCION, etc.) │
+  │ change_type: VARCHAR(30) (VENTA, DEVOLUCION, etc.)     │
   │ previous_stock: NUMERIC(10,3)                          │
   │ new_stock: NUMERIC(10,3)                               │
   │ quantity_changed: NUMERIC(10,3)                        │
   │ reference_id: VARCHAR(100) (Ej. Folio de venta)        │
-  │ user_id: UUID (FK -> auth.users)                       │
+  │ created_by: UUID (FK -> auth.users)                    │
   │ notes: TEXT                                            │
   │ created_at: TIMESTAMPTZ (DEFAULT now())                │
   └────────────────────────────────────────────────────────┘
@@ -232,43 +256,56 @@ El modelo relacional está optimizado para garantizar la integridad referencial 
 
 ---
 
-## 8. Seguridad a Nivel de Fila (Row Level Security - RLS)
+## 8. Seguridad a Nivel de Fila (Row Level Security - RLS) en PostgreSQL Local
 
-RLS actúa como la **segunda línea de defensa**, impidiendo el acceso no autorizado incluso si la capa de aplicación sufriera vulnerabilidades:
+Row Level Security actúa como la **segunda línea de defensa**, forzada directamente en el motor de base de datos:
 
-1. **`products`:** Lectura pública para usuarios autenticados con `is_active = true`. Creación, actualización y desactivación restringida al rol `admin`.
-2. **`product_costs`:** Aislamiento total mediante RLS. La política `SELECT` exige explícitamente `auth.jwt() -> 'app_metadata' ->> 'role' = 'admin'`. Para un cajero, cualquier consulta a esta tabla retorna `0` filas.
-3. **`stock_outlets` y `stock_outlet_items`:** Inserción permitida para cajeros y administradores. Modificaciones restringidas a funciones RPC autorizadas.
-4. **`inventory_logs`:** Inserción restringida exclusivamente a funciones RPC internas (`SECURITY DEFINER`). Lectura permitida solo a usuarios con rol `admin`. No existen políticas de `UPDATE` ni `DELETE` (inmutabilidad estricta).
+### 8.1 Ejecución Transaccional sin Superusuario (`SET LOCAL`)
+Para que PostgreSQL evalúe las políticas RLS y no las omita mediante privilegios administrativos (`BYPASSRLS`), cada operación adquiere un cliente del pool y ejecuta:
+```sql
+BEGIN;
+SET LOCAL ROLE authenticated;
+SET LOCAL "request.jwt.claims" = '{"sub": "<uuid>", "role": "authenticated", "app_metadata": {"role": "<admin|cajero>"}}';
+-- Consultas DML / RPCs
+COMMIT;
+```
+* **Rol `authenticated`:** Es un rol estándar sin privilegios `SUPERUSER` ni `BYPASSRLS`.
+* **Aislamiento en Pool:** El modificador `SET LOCAL` solo aplica durante la transacción activa. Al ejecutar `COMMIT` o `ROLLBACK`, PostgreSQL limpia automáticamente las variables y revierte el rol al estado base de la conexión física.
+
+### 8.2 Políticas RLS Activas:
+1. **`products`:** Lectura para usuarios autenticados donde `is_active = true`. Creación, actualización y Soft Delete restringidos al rol `admin`.
+2. **`product_costs`:** Aislamiento total mediante RLS. La política `SELECT` evalúa `(auth.jwt() -> 'app_metadata' ->> 'role') = 'admin'`. Para un usuario cajero, cualquier consulta retorna estrictamente `0` filas.
+3. **`stock_outlets` y `stock_outlet_items`:** Políticas `"Salidas propias o Admin"` y `"Renglones salidas propias o Admin"`. Los cajeros únicamente pueden consultar las ventas generadas por su propio usuario (`auth.uid() = user_id`); el administrador tiene visibilidad global.
+4. **`inventory_logs`:** Inserción exclusiva para funciones RPC internas (`SECURITY DEFINER`). Lectura restringida a administradores (`(auth.jwt() -> 'app_metadata' ->> 'role') = 'admin'`). No existen políticas de `UPDATE` ni `DELETE` (inmutabilidad estricta).
 
 ---
 
 ## 9. Funciones Almacenadas Transaccionales (RPCs)
 
-Las mutaciones críticas de inventario se ejecutan dentro del motor PostgreSQL en bloques transaccionales atómicos:
+Las mutaciones críticas se ejecutan dentro de PostgreSQL en bloques transaccionales atómicos:
 
 ### A. `upsert_product_with_cost(...)`
 - **Rol ejecutor:** Exclusivo `admin`.
 - **Operación:** Inserta o actualiza un registro en `products` y, simultáneamente, crea o actualiza su costo en `product_costs`.
-- **Auditoría:** Si el stock cambia, registra automáticamente un movimiento de tipo `REABASTECIMIENTO` o `AJUSTE_MANUAL` en `inventory_logs`.
+- **Auditoría:** Dispara el trigger `trg_audit_product_stock` para registrar ajustes en `inventory_logs`.
 
 ### B. `process_stock_outlet(...)`
 - **Rol ejecutor:** `cajero` o `admin`.
-- **Operación:** Procesa el cobro de una venta con verificación de `idempotency_key`.
+- **Operación:** Procesa el cobro atómico de una venta con verificación de `p_idempotency_key`.
 - **Lógica Transaccional:**
-  1. Bloquea las filas de productos involucradas con `FOR UPDATE` para evitar condiciones de carrera (*race conditions*).
-  2. Obtiene el precio oficial directo de la base de datos y calcula el subtotal.
-  3. Comprueba que `stock >= cantidad_solicitada`. Si falta stock en cualquier partida, lanza excepción y revierte toda la transacción.
+  1. Bloquea las filas de productos involucradas con `SELECT ... FOR UPDATE` para prevenir condiciones de carrera.
+  2. Obtiene el precio oficial directo de la base de datos y calcula el subtotal autoritativo.
+  3. Comprueba que `stock >= cantidad_solicitada`. Si falta existencia en cualquier partida, aborta con excepción y revierte toda la transacción.
   4. Descuenta el stock y registra las partidas en `stock_outlet_items`.
-  5. Inserta los asientos correspondientes con tipo `VENTA` en `inventory_logs`.
+  5. Inserta los asientos correspondientes con tipo `VENTA` en `inventory_logs` registrando a `auth.uid()`.
 
 ### C. `cancel_stock_outlet(...)`
 - **Rol ejecutor:** Exclusivo `admin`.
-- **Operación:** Cancela un folio de venta previamente cobrado y restaura la mercancía al inventario.
+- **Operación:** Cancela una venta previamente cobrada y restaura las existencias al inventario.
 - **Lógica Transaccional:**
   1. Valida que la venta exista y que `is_canceled = false`. Si ya estaba cancelada, rechaza la operación.
   2. Valida que el motivo tenga al menos 3 caracteres.
-  3. Marca la venta como cancelada (`is_canceled = true`, `canceled_at`, `canceled_by`, `cancel_reason`).
+  3. Marca la venta como cancelada (`is_canceled = true`, `canceled_at = now()`, `canceled_by = auth.uid()`, `cancel_reason`).
   4. Recorre cada artículo vendido y suma la cantidad al stock del producto en `products`.
   5. Inserta asientos de tipo `DEVOLUCION` en `inventory_logs`.
 
@@ -281,13 +318,13 @@ Las mutaciones críticas de inventario se ejecutan dentro del motor PostgreSQL e
                                                                   │
                                                 Presiona "Cobrar Venta"
                                                                   ▼
-[ PostgreSQL ] ◄── Invoca RPC process_stock_outlet() ─── [ Server Action ]
+[ PostgreSQL Local ] ◄── Invoca RPC process_stock_outlet() ── [ Server Action ]
       │
       ├── 1. Valida Idempotency Key (Si existe, retorna venta previa sin descontar)
       ├── 2. Bloquea filas (SELECT ... FOR UPDATE) y valida existencias
       ├── 3. Si stock insuficiente ──► ROLLBACK TOTAL ──► Error al Cajero
       ├── 4. Si stock suficiente:
-      │      ├── Inserta cabecera en stock_outlets
+      │      ├── Inserta cabecera en stock_outlets (user_id = auth.uid())
       │      ├── Inserta partidas en stock_outlet_items
       │      ├── Descuenta existencias en products (stock = stock - qty)
       │      └── Inserta registros tipo 'VENTA' en inventory_logs
@@ -298,16 +335,16 @@ Las mutaciones críticas de inventario se ejecutan dentro del motor PostgreSQL e
 
 ## 11. Mecanismo de Idempotencia
 
-Para evitar cobros duplicados ocasionados por intermitencias de red o clics repetidos en el botón de cobro:
-1. El cliente genera un identificador único UUID (`idempotency_key`) al abrir la transacción de cobro.
+Para evitar cobros duplicados por intermitencias o clics múltiples:
+1. El cliente genera un identificador único UUID (`idempotency_key`) al iniciar el cobro.
 2. La función `process_stock_outlet` consulta si existe un registro previo con dicho `idempotency_key` en `stock_outlets`.
-3. **Comportamiento ante reintento:** Si la clave ya existe, la función no vuelve a descontar stock ni crea nuevas partidas; retorna inmediatamente el folio original registrado, garantizando que cada venta se procese exactamente una vez.
+3. **Comportamiento ante reintento:** Si la clave ya existe, la función no vuelve a descontar existencias ni crea nuevas partidas; retorna inmediatamente el folio original registrado, garantizando que cada venta se procese exactamente una vez.
 
 ---
 
 ## 12. Garantía de Atomicidad (ACID)
 
-- **Todo o Nada:** En ventas de múltiples artículos (ej. 5 cuadernos y 2 cajas de lápices), si el último producto no cuenta con existencia suficiente, el motor PostgreSQL cancela todas las operaciones intermedias y no descuenta ninguno de los artículos.
+- **Todo o Nada:** En ventas de múltiples artículos, si el último producto no cuenta con existencia suficiente, el motor PostgreSQL cancela todas las operaciones intermedias y no descuenta ninguno de los artículos.
 - **Consistencia:** El stock en `products` y el historial en `inventory_logs` cambian de manera indivisible dentro de la misma transacción de base de datos.
 
 ---
@@ -315,20 +352,19 @@ Para evitar cobros duplicados ocasionados por intermitencias de red o clics repe
 ## 13. Mecanismo de Desactivación Lógica (Soft Delete)
 
 Para preservar la integridad referencial histórica:
-- Los productos eliminados por el administrador no se borran físicamente (`DELETE FROM products` no se utiliza).
+- Los productos eliminados por el administrador no se borran físicamente (`DELETE FROM products` no se ejecuta).
 - Se actualiza la bandera booleana `is_active = false`.
-- Las consultas en la terminal de Caja filtran automáticamente `WHERE is_active = true`, evitando que productos descontinuados sean vendidos.
-- Las ventas pasadas, reportes y partidas en `stock_outlet_items` conservan sus claves foráneas válidas sin generar registros huérfanos.
+- Las consultas en la terminal de Caja filtran automáticamente `WHERE is_active = true`, impidiendo la venta de productos descontinuados.
+- Las ventas históricas y reportes conservan sus claves foráneas válidas sin generar registros huérfanos.
 
 ---
 
 ## 14. Arquitectura de Auditoría Forense
 
-La tabla `inventory_logs` funciona como un libro mayor contable (*ledger*) inalterable:
-
-- **Generación Automática:** Los registros solo se insertan desde las funciones transaccionales RPC (`process_stock_outlet`, `cancel_stock_outlet` y `upsert_product_with_cost`).
+La tabla `inventory_logs` opera como un libro mayor contable (*ledger*) inalterable:
+- **Generación Automática:** Los registros solo se insertan desde funciones transaccionales RPC (`process_stock_outlet`, `cancel_stock_outlet`, `upsert_product_with_cost`) y triggers de almacén.
 - **Trazabilidad Completa:** Cada entrada almacena el stock previo, el nuevo stock, la variación neta (`quantity_changed`), el usuario responsable y la referencia de la venta.
-- **Consulta de Solo Lectura:** La pantalla `/admin/auditoria` expone una interfaz de filtrado y búsqueda sin capacidades de edición o borrado.
+- **Consulta de Solo Lectura:** La pantalla `/admin/auditoria` expone una interfaz server-side de filtrado y búsqueda sin capacidades de edición o borrado físico.
 
 ---
 
@@ -346,11 +382,11 @@ El componente [BarcodeScanner.svelte](file:///d:/proyectos%20$/inventario_papele
 [ Validador de Intervalo ] ───► ¿Tiempo entre teclas < 100ms?
                                   /                  \
                                 (Sí)                 (No: Escritura humana)
-                                 /                     \
-               Despacha evento 'scan' con SKU        Ignora buffer
-                                 │
-                                 ▼
-               Agrega producto al carrito en POS
+                                  /                     \
+                Despacha evento 'scan' con SKU        Ignora buffer
+                                  │
+                                  ▼
+                Agrega producto al carrito en POS
 ```
 
 - **Resiliencia de Foco:** El listener global captura las ráfagas del escáner independientemente de si el foco del navegador se encuentra en un `<input>` de texto o en un `<button>`.
@@ -360,14 +396,12 @@ El componente [BarcodeScanner.svelte](file:///d:/proyectos%20$/inventario_papele
 
 ## 16. Modelo de Seguridad en Profundidad
 
-La seguridad del sistema está estructurada en múltiples capas defensivas:
-
 ```text
-1. NAVEGADOR       ──► Validación de formularios, captura de foco y sanitización.
-2. SVELTEKIT SSR   ──► Validación de sesiones JWT y guardias RBAC de ruta (303).
-3. API GATEWAY     ──► Operación exclusiva con anon key pública (sin service_role).
-4. POSTGRESQL RLS  ──► Aislamiento estricto de tablas (product_costs invisible a cajeros).
-5. RPC FUNCTIONS   ──► SECURITY DEFINER con verificación explícita de app_metadata.role.
+1. NAVEGADOR        ──► Validación de formularios, captura de foco y sanitización.
+2. SVELTEKIT SSR    ──► Verificación criptográfica de cookie 'app_session' y guardias RBAC 303.
+3. CONTEXTO RLS     ──► SET LOCAL ROLE authenticated y "request.jwt.claims" transaccionales.
+4. POSTGRESQL RLS   ──► Aislamiento estricto de tablas (product_costs invisible a cajeros).
+5. RPC FUNCTIONS    ──► SECURITY DEFINER con verificación explícita de app_metadata.role.
 ```
 
 ---
@@ -379,7 +413,7 @@ La seguridad del sistema está estructurada en múltiples capas defensivas:
                                                                      │
                                                    Ingresa Motivo (mín. 3 chars)
                                                                      ▼
-[ PostgreSQL ] ◄── Invoca RPC cancel_stock_outlet() ─────── [ Server Action ]
+[ PostgreSQL Local ] ◄── Invoca RPC cancel_stock_outlet() ── [ Server Action ]
       │
       ├── 1. Valida que usuario sea 'admin'
       ├── 2. Valida que venta exista y is_canceled == false
@@ -394,13 +428,13 @@ La seguridad del sistema está estructurada en múltiples capas defensivas:
 ## 18. Arquitectura de Despliegue en Producción
 
 ```text
-[ Cliente Web / Navegador ] ──► [ Proxy Inverso / HTTPS ] ──► [ Node.js (:3000) /build ] ──► [ Supabase Cloud ]
+[ Cliente Web / Navegador ] ──► [ Proxy Inverso / HTTPS ] ──► [ Node.js (:3000) /build ] ──► [ PostgreSQL 15 Local (Docker :5433) ]
 ```
 
 - **Adaptador:** `@sveltejs/adapter-node` compila la aplicación a JavaScript nativo en el directorio `/build`.
-- **Arranque:** Ejecutado mediante `npm run start` o `node build`.
-- **Variables de Entorno:** `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `PORT`, `ORIGIN`, `NODE_ENV`.
-- **Exclusiones:** No se requiere ni soporta infraestructura Serverless / Edge (Vercel, Cloudflare Pages, etc.).
+- **Arranque:** Ejecutado mediante `node build` o `npm run start`.
+- **Variables de Entorno Vigentes:** `DATABASE_URL`, `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`, `PGDATABASE`, `SESSION_SECRET`, `PORT`, `ORIGIN`, `NODE_ENV`.
+- **Exclusión de Nube:** No se requiere conectividad externa hacia `*.supabase.co` ni servicios Serverless/Edge.
 
 ---
 
@@ -410,34 +444,34 @@ El sistema valida su integridad mediante cuatro niveles complementarios de evide
 
 ```text
 ┌────────────────────────────────────────────────────────────────────────────────────────┐
-│ NIVEL D — E2E Browser Testing (Playwright / Chrome Real)                               │
+│ NIVEL D — E2E Browser Testing (Playwright / Chromium Real)                             │
 │ └── tests/e2e/pos_critical_flow.spec.ts (1 test passed)                                │
-│     Valida el flujo vertical completo: Login -> POS -> Scanner -> Checkout ->         │
-│     Admin Login -> Cancelación -> Auditoría.                                           │
+│     Valida el flujo vertical completo: Login Cajero -> POS -> Scanner -> Cobro RPC ->   │
+│     Login Admin -> Cancelación RPC -> Auditoría UI.                                    │
 ├────────────────────────────────────────────────────────────────────────────────────────┤
-│ NIVEL C — Integración Real en Supabase Cloud                                           │
-│ └── tests/cloud/supabase_cloud.test.ts (7 tests passed)                                │
-│     Valida conexión remota, Auth, RLS de product_costs y RPCs en base de datos real.   │
-├────────────────────────────────────────────────────────────────────────────────────────┤
-│ NIVEL B — Pruebas de Integración y Lógica de Aplicación (Vitest)                       │
-│ └── 10 archivos de prueba locales (85 tests passed / 1 skipped):                       │
+│ NIVEL C — Integración de Seguridad y RLS en PostgreSQL Local (Docker)                  │
+│ └── tests/db/ (18 tests passed)                                                        │
 │     - tests/db/process_outlet.test.ts (6 tests)                                        │
 │     - tests/db/cancel_outlet.test.ts (6 tests)                                         │
 │     - tests/db/rls_costs.test.ts (6 tests)                                             │
+├────────────────────────────────────────────────────────────────────────────────────────┤
+│ NIVEL B — Pruebas de Integración y Lógica de Aplicación (Vitest)                       │
+│ └── 10 archivos de prueba locales (92 tests passed / 1 skipped):                       │
 │     - tests/auth/route_guards.test.ts (13 tests)                                       │
 │     - tests/ui/admin_products.test.ts (9 tests)                                        │
-│     - tests/ui/returns_audit.test.ts (8 tests)                                         │
+│     - tests/ui/returns_audit.test.ts (14 tests)                                        │
 │     - tests/ui/scanner_checkout.test.ts (10 tests)                                     │
 │     - tests/ui/scanner_dom_lifecycle.test.ts (6 tests)                                 │
-│     - tests/setup.test.ts (14 tests)                                                   │
+│     - tests/setup.test.ts (15 tests)                                                   │
+│     - tests/cloud/supabase_cloud.test.ts (7 tests de compatibilidad)                   │
 ├────────────────────────────────────────────────────────────────────────────────────────┤
-│ NIVEL A — Evidencia Estática (TypeScript, Linter y Esquema SQL v8.0)                   │
-│ └── Verificación estricta de tipos, sintaxis Svelte y migración declarativa.           │
+│ NIVEL A — Evidencia Estática (TypeScript, Linter y Esquema SQL)                        │
+│ └── Verificación estricta de tipos, sintaxis Svelte y migraciones declarativas.        │
 └────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 > **Nota sobre el Baseline de Pruebas:**
-> - `npm run test` ejecuta la suite de Vitest reportando **85 pasados y 1 omitido (*skipped*)**. El test omitido corresponde a `pos_critical_flow.spec.ts`, que se ejecuta exclusivamente bajo Playwright con `npx playwright test`.
+> - `npm run test` ejecuta la suite de Vitest reportando **92 pasados y 1 omitido (*skipped*)**. El test omitido corresponde al wrapper de `pos_critical_flow.spec.ts`, que se ejecuta exclusivamente bajo Playwright con `npx playwright test`.
 
 ---
 
@@ -449,19 +483,21 @@ inventario_papeleria/
 │   ├── MANUAL_USUARIO.md                  # Manual operativo para cajeros
 │   ├── GUIA_ADMINISTRADOR.md              # Guía de supervisión y gestión
 │   ├── INSTALACION_Y_DEPLOYMENT.md        # Guía técnica de aprovisionamiento
-│   └── ARQUITECTURA.md                    # Documento de arquitectura (este archivo)
+│   ├── SRS_v8.1_Arquitectura_Local.md     # Especificación arquitectónica v8.1 (enmienda oficial)
+│   └── ARQUITECTURA.md                    # Documento de arquitectura técnica (este archivo)
 ├── src/
 │   ├── lib/
 │   │   ├── components/                    # Componentes modulares Svelte 5
-│   │   └── supabase/                      # Clientes client.ts y server.ts
+│   │   └── supabase/                      # Adaptador PostgreSQL server.ts y stub client.ts
 │   └── routes/                            # Sistema de rutas y Server Actions
 ├── supabase/
-│   └── migrations/
-│       └── 20260829000000_init_v8.sql     # Esquema SQL, RLS, RPCs y triggers
+│   └── migrations/                        # Migraciones SQL reproducibles
+│       ├── 20260829000000_init_v8.sql     # Esquema SQL inicial, RLS, RPCs y triggers
+│       └── 20260902000000_fix_stock_outlet_items_rls.sql # RLS en stock_outlet_items
 ├── tests/
 │   ├── auth/                              # Pruebas de guardias y RBAC
-│   ├── cloud/                             # Pruebas de integración Supabase Cloud
-│   ├── db/                                # Pruebas locales de RPCs y RLS
+│   ├── cloud/                             # Pruebas de compatibilidad
+│   ├── db/                                # Pruebas de RPCs y RLS en PostgreSQL Docker
 │   ├── e2e/                               # Pruebas de navegador con Playwright
 │   └── ui/                                # Pruebas de componentes y DOM
 ├── package.json                           # Scripts y dependencias
@@ -474,10 +510,10 @@ inventario_papeleria/
 
 ## 21. Decisiones Arquitectónicas Relevantes (ADR Summary)
 
-1. **Renderizado SSR:** Garantiza que las credenciales, validaciones RBAC y cookies de sesión se procesen en el servidor antes de entregar contenido al navegador.
+1. **Renderizado SSR y Guardias en Servidor:** Garantiza que las credenciales, validaciones RBAC y cookies de sesión se procesen en el servidor antes de entregar contenido al navegador.
 2. **Aislamiento de Costos en Tabla Separada:** Separa `product_costs` de `products` para habilitar una política RLS estricta que impide la fuga de datos financieros hacia la terminal de cobro.
 3. **Funciones RPC `SECURITY DEFINER`:** Centraliza la lógica transaccional de cobro y devolución en PostgreSQL, eliminando discrepancias por latencia de red y garantizando atomicidad total.
-4. **Adopción de `@sveltejs/adapter-node`:** Genera un artefacto estándar ejecutable en cualquier contenedor o servidor dedicado sin atarse a proveedores propietarios de funciones serverless.
+4. **Adopción de `@sveltejs/adapter-node` y `pg.Pool`:** Genera un artefacto estándar ejecutable en cualquier entorno Node.js conectado directamente a PostgreSQL local sin dependencias cloud propietarias.
 
 ---
 
@@ -494,12 +530,14 @@ inventario_papeleria/
 ```text
  ┌──────────────┐      ┌──────────────┐      ┌──────────────┐      ┌──────────────┐
  │    LOGIN     │ ───► │ AUTORIZACIÓN │ ───► │  CAJA / POS  │ ───► │    COBRO     │
- │  Credenciales│      │  app_metadata│      │ Lector <100ms│      │ RPC Atómica  │
+ │ Credenciales │      │ app_metadata │      │ Lector <100ms│      │ RPC Atómica  │
+ │    Local     │      │   y Cookie   │      │              │      │ PostgreSQL   │
  └──────────────┘      └──────────────┘      └──────────────┘      └──────┬───────┘
                                                                           │
                                                                           ▼
  ┌──────────────┐      ┌──────────────┐      ┌──────────────┐      ┌──────────────┐
  │  AUDITORÍA   │ ◄─── │ RESTAURACIÓN │ ◄─── │  DEVOLUCIÓN  │ ◄─── │  INVENTARIO  │
  │Bitácora Inmut│      │ Stock Reint. │      │ Admin Motivo │      │Stock Deducido│
+ │inventory_logs│      │              │      │              │      │              │
  └──────────────┘      └──────────────┘      └──────────────┘      └──────────────┘
 ```

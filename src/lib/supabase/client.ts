@@ -1,10 +1,8 @@
-import { createBrowserClient } from '@supabase/ssr';
-
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
-
 /**
- * Supabase client for browser-side usage.
- * Requires VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY environment variables.
+ * Browser-side client stub for 100% offline local operation.
+ *
+ * Direct browser access to Supabase Cloud is disabled.
+ * All authentication, data queries and RPCs are strictly handled server-side
+ * via SvelteKit Server Load and Server Actions connected to local PostgreSQL.
  */
-export const supabase = createBrowserClient(supabaseUrl, supabaseAnonKey);
+export const supabase = null;
