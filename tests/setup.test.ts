@@ -54,7 +54,10 @@ describe('ISSUE-000 — Harness & Migration v8.0 Contract', () => {
 	});
 
 	it('defines SELECT policy on stock_outlet_items for authenticated users', () => {
-		expect(sql).toContain('CREATE POLICY "Renglones salidas propias o Admin" ON stock_outlet_items FOR SELECT');
+	const fixRlsPath = resolve('supabase/migrations/20260902000000_fix_stock_outlet_items_rls.sql');
+	const fixRlsSql = readFileSync(fixRlsPath, 'utf-8');
+	expect(fixRlsSql).toContain('CREATE POLICY "Renglones salidas propias o Admin" ON stock_outlet_items FOR SELECT');
+	expect(sql).toContain('CREATE POLICY "Renglones salidas propias o Admin" ON stock_outlet_items FOR SELECT');
 	});
 
 	// --- Audit trigger ---
