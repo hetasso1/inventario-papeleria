@@ -30,8 +30,13 @@
 		"vitest": "^4.1.8"
 	},
 	"dependencies": {
+		"@lucide/svelte": "^1.41.0",
 		"@supabase/ssr": "^0.12.5",
 		"@supabase/supabase-js": "^2.112.4",
-		"pg": "^8.23.0"
+		"clsx": "^2.1.1",
+		"lucide-react": "^1.41.0",
+		"lucide-svelte": "^1.0.1",
+		"pg": "^8.23.0",
+		"tailwind-merge": "^3.6.0"
 	}
 }

@@ -128,6 +128,7 @@
 
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { Barcode } from 'lucide-svelte';
 
 	let {
 		onScan,
@@ -158,16 +159,21 @@
 	});
 </script>
 
-<div class="inline-flex items-center gap-2 rounded-lg bg-slate-900/80 px-3 py-1.5 text-xs text-slate-300 border border-slate-700/80 shadow-sm backdrop-blur-sm">
-	<span class="relative flex h-2 w-2">
-		<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-		<span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-	</span>
-	<span class="font-medium text-slate-200">Lector USB Activo</span>
-	<span class="text-slate-500">|</span>
-	<span class="text-slate-400 font-mono text-[11px]">&lt;100ms</span>
+<div
+	class="inline-flex items-center gap-2.5 rounded-md border border-border bg-card px-3 py-1.5 text-xs shadow-xs text-muted-foreground"
+>
+	<Barcode class="h-4 w-4 text-foreground shrink-0" strokeWidth={1.5} />
+	<div class="flex items-center gap-1.5">
+		<span class="relative flex h-2 w-2">
+			<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60"></span>
+			<span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+		</span>
+		<span class="font-medium text-foreground">Lector USB</span>
+	</div>
+	<span class="text-border">|</span>
+	<span class="font-mono text-[11px] text-muted-foreground">&lt;100ms</span>
 	{#if lastScannedCode}
-		<span class="text-slate-500">•</span>
-		<span class="text-indigo-400 font-mono font-semibold">Último: {lastScannedCode}</span>
+		<span class="text-border">•</span>
+		<span class="font-mono font-medium text-foreground">SKU: {lastScannedCode}</span>
 	{/if}
 </div>

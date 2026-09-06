@@ -3,8 +3,24 @@
 	import favicon from '$lib/assets/favicon.svg';
 	import { page } from '$app/state';
 	import type { LayoutData } from './$types';
+	import Badge from '$lib/components/ui/Badge.svelte';
+	import Button from '$lib/components/ui/Button.svelte';
+	import {
+		Store,
+		Package,
+		History,
+		ShieldCheck,
+		LogOut,
+		Menu,
+		X,
+		UserCheck,
+		Shield,
+		Layers
+	} from 'lucide-svelte';
 
 	let { data, children }: { data: LayoutData; children: any } = $props();
+
+	let mobileMenuOpen = $state(false);
 
 	// Check if current route is login or if user is unauthenticated
 	let isLoginPage = $derived(page.url.pathname === '/login' || page.url.pathname === '/');
@@ -12,120 +28,274 @@
 	let user = $derived(data.user);
 	let role = $derived(data.role ?? data.user?.role ?? 'cajero');
 	let isAdmin = $derived(role === 'admin');
+
+	// Breadcrumb title derivation
+	let pageTitle = $derived.by(() => {
+		if (currentPath === '/caja') return 'Punto de Venta';
+		if (currentPath.startsWith('/admin/productos')) return 'Gestión de Productos';
+		if (currentPath.startsWith('/admin/historial')) return 'Historial de Salidas';
+		if (currentPath.startsWith('/admin/auditoria')) return 'Auditoría de Devoluciones';
+		return 'Inventario Papelería';
+	});
 </script>
 
 <svelte:head>
 	<link rel="icon" href={favicon} />
 </svelte:head>
 
-<div class="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-indigo-500 selection:text-white">
-	{#if !isLoginPage}
-		<!-- Global Navigation Header -->
-		<header class="sticky top-0 z-40 w-full border-b border-slate-800/80 bg-slate-900/90 backdrop-blur-md">
-			<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-				<div class="flex items-center justify-between h-16 gap-4">
-					<!-- Brand / Logo -->
-					<div class="flex items-center gap-6">
-						<a href="/caja" class="flex items-center gap-3 group">
-							<div class="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-500 text-white shadow-md shadow-indigo-600/30 group-hover:scale-105 transition-transform duration-200">
-								<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
-								</svg>
-							</div>
-							<div class="hidden sm:block">
-								<span class="font-bold text-base tracking-tight text-white group-hover:text-indigo-300 transition-colors">Papelería POS</span>
-								<span class="block text-[10px] uppercase font-semibold tracking-wider text-slate-400">Inventario & Ventas</span>
-							</div>
-						</a>
+{#if isLoginPage}
+	<!-- Plain layout for login -->
+	<div class="min-h-screen bg-background text-foreground font-sans">
+		{@render children()}
+	</div>
+{:else}
+	<!-- Shadcn Admin & POS App Layout (Sidebar + Top Navbar) -->
+	<div class="min-h-screen bg-background text-foreground font-sans flex flex-col md:flex-row">
+		<!-- Desktop Sidebar -->
+		<aside
+			class="hidden md:flex w-64 flex-col border-r border-border bg-card text-card-foreground shrink-0 select-none"
+		>
+			<!-- Brand / Header -->
+			<div class="h-16 flex items-center gap-3 px-5 border-b border-border">
+				<div
+					class="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-900 text-slate-50 dark:bg-slate-50 dark:text-slate-900 shadow-sm"
+				>
+					<Layers class="h-5 w-5" strokeWidth={1.5} />
+				</div>
+				<div class="flex flex-col">
+					<span class="font-semibold text-sm tracking-tight text-foreground">Papelería POS</span>
+					<span class="text-[11px] text-muted-foreground">Sistema de Control</span>
+				</div>
+			</div>
 
-						<!-- Navigation Links -->
-						<nav class="flex items-center gap-1.5 sm:gap-2">
-							<!-- Caja (Always visible) -->
+			<!-- Navigation Sections -->
+			<div class="flex-1 overflow-y-auto px-3 py-4 space-y-6">
+				<!-- Operaciones -->
+				<div>
+					<div class="px-3 pb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+						Operación
+					</div>
+					<nav class="space-y-1">
+						<a
+							href="/caja"
+							class="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors {currentPath === '/caja'
+								? 'bg-accent text-accent-foreground font-semibold shadow-xs'
+								: 'text-muted-foreground hover:bg-accent/60 hover:text-foreground'}"
+						>
+							<Store class="h-4 w-4 shrink-0" strokeWidth={1.5} />
+							<span>Caja / Venta</span>
+						</a>
+					</nav>
+				</div>
+
+				<!-- Administración (Sólo Admin) -->
+				{#if isAdmin}
+					<div>
+						<div class="px-3 pb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+							Administración
+						</div>
+						<nav class="space-y-1">
 							<a
-								href="/caja"
-								class="px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-all duration-150 flex items-center gap-1.5 {currentPath === '/caja'
-									? 'bg-indigo-600/20 text-indigo-300 border border-indigo-500/40 shadow-sm'
-									: 'text-slate-300 hover:text-white hover:bg-slate-800/60'}"
+								href="/admin/productos"
+								class="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors {currentPath.startsWith(
+									'/admin/productos'
+								)
+									? 'bg-accent text-accent-foreground font-semibold shadow-xs'
+									: 'text-muted-foreground hover:bg-accent/60 hover:text-foreground'}"
 							>
-								<svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-								</svg>
-								<span>Caja</span>
+								<Package class="h-4 w-4 shrink-0" strokeWidth={1.5} />
+								<span>Productos & Costos</span>
 							</a>
 
-							<!-- Admin Navigation (Only if Admin) -->
-							{#if isAdmin}
-								<a
-									href="/admin/productos"
-									class="px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-all duration-150 flex items-center gap-1.5 {currentPath.startsWith('/admin/productos')
-										? 'bg-indigo-600/20 text-indigo-300 border border-indigo-500/40 shadow-sm'
-										: 'text-slate-300 hover:text-white hover:bg-slate-800/60'}"
-								>
-									<svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-									</svg>
-									<span>Productos</span>
-								</a>
+							<a
+								href="/admin/historial"
+								class="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors {currentPath.startsWith(
+									'/admin/historial'
+								)
+									? 'bg-accent text-accent-foreground font-semibold shadow-xs'
+									: 'text-muted-foreground hover:bg-accent/60 hover:text-foreground'}"
+							>
+								<History class="h-4 w-4 shrink-0" strokeWidth={1.5} />
+								<span>Historial de Salidas</span>
+							</a>
 
-								<a
-									href="/admin/historial"
-									class="px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-all duration-150 flex items-center gap-1.5 {currentPath.startsWith('/admin/historial')
-										? 'bg-indigo-600/20 text-indigo-300 border border-indigo-500/40 shadow-sm'
-										: 'text-slate-300 hover:text-white hover:bg-slate-800/60'}"
-								>
-									<svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
-									</svg>
-									<span>Historial</span>
-								</a>
-
-								<a
-									href="/admin/auditoria"
-									class="px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-all duration-150 flex items-center gap-1.5 {currentPath.startsWith('/admin/auditoria')
-										? 'bg-indigo-600/20 text-indigo-300 border border-indigo-500/40 shadow-sm'
-										: 'text-slate-300 hover:text-white hover:bg-slate-800/60'}"
-								>
-									<svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-									</svg>
-									<span>Auditoría</span>
-								</a>
-							{/if}
+							<a
+								href="/admin/auditoria"
+								class="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors {currentPath.startsWith(
+									'/admin/auditoria'
+								)
+									? 'bg-accent text-accent-foreground font-semibold shadow-xs'
+									: 'text-muted-foreground hover:bg-accent/60 hover:text-foreground'}"
+							>
+								<ShieldCheck class="h-4 w-4 shrink-0" strokeWidth={1.5} />
+								<span>Auditoría & Logs</span>
+							</a>
 						</nav>
 					</div>
+				{/if}
+			</div>
 
-					<!-- User Info & Logout Button -->
-					<div class="flex items-center gap-3">
-						<!-- Role & Email Badge -->
-						<div class="hidden md:flex items-center gap-2 rounded-xl bg-slate-800/80 px-3 py-1.5 border border-slate-700/60 text-xs">
-							<span class="h-2 w-2 rounded-full {isAdmin ? 'bg-amber-400 ring-2 ring-amber-400/30 animate-pulse' : 'bg-indigo-400'}"></span>
-							<span class="text-slate-300 font-medium truncate max-w-[140px]">{user?.email ?? 'Usuario'}</span>
-							<span class="rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider {isAdmin ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' : 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'}">
+			<!-- User Footer -->
+			<div class="p-3 border-t border-border bg-card/50">
+				<div class="flex items-center justify-between gap-2 p-2 rounded-lg bg-accent/40 border border-border">
+					<div class="flex items-center gap-2.5 min-w-0">
+						<div
+							class="h-8 w-8 rounded-full bg-secondary border border-border flex items-center justify-center shrink-0"
+						>
+							{#if isAdmin}
+								<Shield class="h-4 w-4 text-amber-500" strokeWidth={1.5} />
+							{:else}
+								<UserCheck class="h-4 w-4 text-slate-400" strokeWidth={1.5} />
+							{/if}
+						</div>
+						<div class="flex flex-col min-w-0">
+							<span class="text-xs font-medium text-foreground truncate">{user?.email ?? 'Usuario'}</span>
+							<span class="text-[10px] uppercase font-semibold text-muted-foreground tracking-wider">
 								{role}
 							</span>
 						</div>
+					</div>
 
-						<!-- Logout Form -->
-						<form action="/logout" method="POST">
-							<button
-								type="submit"
-								title="Cerrar sesión"
-								class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs sm:text-sm font-medium rounded-lg text-slate-300 bg-slate-800/80 hover:bg-red-500/20 hover:text-red-300 hover:border-red-500/40 border border-slate-700/60 transition-all duration-150"
+					<form action="/logout" method="POST">
+						<button
+							type="submit"
+							title="Cerrar sesión"
+							aria-label="Cerrar sesión"
+							class="p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors cursor-pointer"
+						>
+							<LogOut class="h-4 w-4" strokeWidth={1.5} />
+						</button>
+					</form>
+				</div>
+			</div>
+		</aside>
+
+		<!-- Mobile Header & Drawer -->
+		<div class="md:hidden border-b border-border bg-card">
+			<div class="h-14 px-4 flex items-center justify-between">
+				<div class="flex items-center gap-2.5">
+					<div
+						class="flex h-8 w-8 items-center justify-center rounded-md bg-slate-900 text-slate-50 dark:bg-slate-50 dark:text-slate-900 shadow-sm"
+					>
+						<Layers class="h-4 w-4" strokeWidth={1.5} />
+					</div>
+					<span class="font-semibold text-sm tracking-tight text-foreground">Papelería POS</span>
+				</div>
+
+				<button
+					type="button"
+					onclick={() => (mobileMenuOpen = !mobileMenuOpen)}
+					class="p-2 rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-accent"
+					aria-label="Abrir menú"
+				>
+					{#if mobileMenuOpen}
+						<X class="h-5 w-5" strokeWidth={1.5} />
+					{:else}
+						<Menu class="h-5 w-5" strokeWidth={1.5} />
+					{/if}
+				</button>
+			</div>
+
+			<!-- Mobile Collapsible Menu -->
+			{#if mobileMenuOpen}
+				<div class="px-4 py-3 border-t border-border space-y-4 bg-card">
+					<nav class="space-y-1">
+						<a
+							href="/caja"
+							onclick={() => (mobileMenuOpen = false)}
+							class="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium {currentPath === '/caja'
+								? 'bg-accent text-accent-foreground font-semibold'
+								: 'text-muted-foreground hover:bg-accent/60'}"
+						>
+							<Store class="h-4 w-4" strokeWidth={1.5} />
+							<span>Caja</span>
+						</a>
+
+						{#if isAdmin}
+							<a
+								href="/admin/productos"
+								onclick={() => (mobileMenuOpen = false)}
+								class="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium {currentPath.startsWith(
+									'/admin/productos'
+								)
+									? 'bg-accent text-accent-foreground font-semibold'
+									: 'text-muted-foreground hover:bg-accent/60'}"
 							>
-								<svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-								</svg>
-								<span class="hidden sm:inline">Salir</span>
-							</button>
+								<Package class="h-4 w-4" strokeWidth={1.5} />
+								<span>Productos</span>
+							</a>
+
+							<a
+								href="/admin/historial"
+								onclick={() => (mobileMenuOpen = false)}
+								class="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium {currentPath.startsWith(
+									'/admin/historial'
+								)
+									? 'bg-accent text-accent-foreground font-semibold'
+									: 'text-muted-foreground hover:bg-accent/60'}"
+							>
+								<History class="h-4 w-4" strokeWidth={1.5} />
+								<span>Historial</span>
+							</a>
+
+							<a
+								href="/admin/auditoria"
+								onclick={() => (mobileMenuOpen = false)}
+								class="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium {currentPath.startsWith(
+									'/admin/auditoria'
+								)
+									? 'bg-accent text-accent-foreground font-semibold'
+									: 'text-muted-foreground hover:bg-accent/60'}"
+							>
+								<ShieldCheck class="h-4 w-4" strokeWidth={1.5} />
+								<span>Auditoría</span>
+							</a>
+						{/if}
+					</nav>
+
+					<div class="pt-3 border-t border-border flex items-center justify-between">
+						<div class="flex items-center gap-2">
+							<span class="text-xs text-muted-foreground truncate max-w-[180px]">{user?.email ?? 'Usuario'}</span>
+							<Badge variant="secondary" class="text-[10px]">{role}</Badge>
+						</div>
+
+						<form action="/logout" method="POST">
+							<Button type="submit" variant="ghost" size="sm" class="h-8 gap-1.5 text-xs text-muted-foreground hover:text-destructive">
+								<LogOut class="h-3.5 w-3.5" strokeWidth={1.5} />
+								<span>Salir</span>
+							</Button>
 						</form>
 					</div>
 				</div>
-			</div>
-		</header>
-	{/if}
+			{/if}
+		</div>
 
-	<!-- Main Content Slot -->
-	<main class="flex-1">
-		{@render children()}
-	</main>
-</div>
+		<!-- Main Workspace Area -->
+		<div class="flex-1 flex flex-col min-w-0 bg-background">
+			<!-- Top Navbar (Desktop Breadcrumb & Quick Info) -->
+			<header
+				class="hidden md:flex h-16 items-center justify-between px-6 lg:px-8 border-b border-border bg-background/95 backdrop-blur-sm sticky top-0 z-30"
+			>
+				<!-- Breadcrumbs / Page Identity -->
+				<div class="flex items-center gap-2 text-sm">
+					<span class="text-muted-foreground">Sistema</span>
+					<span class="text-muted-foreground">/</span>
+					<h1 class="font-semibold tracking-tight text-foreground">{pageTitle}</h1>
+				</div>
+
+				<!-- Quick Status Pill & Role Badge -->
+				<div class="flex items-center gap-3">
+					<Badge variant="outline" class="gap-1.5 px-3 py-1 font-mono text-xs">
+						<span class="h-2 w-2 rounded-full {isAdmin ? 'bg-amber-400' : 'bg-emerald-400'}"></span>
+						<span class="capitalize">{role}</span>
+					</Badge>
+				</div>
+			</header>
+
+			<!-- Child Content Viewport -->
+			<main class="flex-1 overflow-auto">
+				{@render children()}
+			</main>
+		</div>
+	</div>
+{/if}
