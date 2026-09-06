@@ -174,6 +174,6 @@
 	<span class="font-mono text-[11px] text-muted-foreground">&lt;100ms</span>
 	{#if lastScannedCode}
 		<span class="text-border">•</span>
-		<span class="font-mono font-medium text-foreground">SKU: {lastScannedCode}</span>
+		<span class="font-mono font-medium text-foreground">Último: {lastScannedCode}</span>
 	{/if}
 </div>

@@ -31,7 +31,7 @@
 
 	// Breadcrumb title derivation
 	let pageTitle = $derived.by(() => {
-		if (currentPath === '/caja') return 'Punto de Venta';
+		if (currentPath === '/caja') return 'Punto de Venta (Caja)';
 		if (currentPath.startsWith('/admin/productos')) return 'Gestión de Productos';
 		if (currentPath.startsWith('/admin/historial')) return 'Historial de Salidas';
 		if (currentPath.startsWith('/admin/auditoria')) return 'Auditoría de Devoluciones';
@@ -280,7 +280,7 @@
 				<div class="flex items-center gap-2 text-sm">
 					<span class="text-muted-foreground">Sistema</span>
 					<span class="text-muted-foreground">/</span>
-					<h1 class="font-semibold tracking-tight text-foreground">{pageTitle}</h1>
+					<span class="font-semibold tracking-tight text-foreground">{pageTitle}</span>
 				</div>
 
 				<!-- Quick Status Pill & Role Badge -->

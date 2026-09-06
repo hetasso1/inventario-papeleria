@@ -141,11 +141,11 @@
 		class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border pb-5"
 	>
 		<div>
-			<h2
+			<h1
 				class="text-xl sm:text-2xl font-semibold tracking-tight text-foreground"
 			>
-				Punto de Venta
-			</h2>
+				Punto de Venta (Caja)
+			</h1>
 			<p class="text-xs sm:text-sm text-muted-foreground mt-0.5">
 				Escaneo global USB y cobro atómico con auditoría automática.
 			</p>
@@ -216,7 +216,7 @@
 						¡Venta Registrada Exitosamente!
 					</h3>
 					<p class="text-xs text-muted-foreground font-mono mt-0.5">
-						ID: {completedSale.id} • Total: ${completedSale.total.toFixed(
+						ID Salida: {completedSale.id} • Total: ${completedSale.total.toFixed(
 							2,
 						)} ({completedSale.count} artículos)
 					</p>
