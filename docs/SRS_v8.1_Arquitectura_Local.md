@@ -1,17 +1,17 @@
 # Documento de Requerimientos de Software (SRS) — Versión 8.1
 ## Especificación de Arquitectura Local y Enmienda Oficial al SRS v8.0
 
-**Proyecto:** Web App de Gestión de Inventario y Punto de Venta para Papelería (`inventario-papeleria`)  
-**Rama de Implementación Canónica:** `harold_test`  
-**Fecha de Emisión:** 2 de Septiembre de 2026  
-**Estado:** Especificación Arquitectónica Oficial Vigente (Enmienda Técnica Aprobada)  
+**Proyecto:** Web App de Gestión de Inventario y Punto de Venta para Papelería (`inventario-papeleria`)
+**Rama de Implementación Canónica:** `harold_test`
+**Fecha de Emisión:** 2 de Septiembre de 2026 (Actualizado: 6 de Septiembre de 2026)
+**Estado:** Especificación Arquitectónica Oficial Vigente (Enmienda Técnica Aprobada)
 **Documento Base Predecesor:** `Documento de Requerimientos de Software (SRS) — Versión 8.0 (Especificación de Arquitectura Final).pdf` (Preservado íntegramente como referencia histórica de requisitos funcionales).
 
 ---
 
 ## 1. Propósito y Alcance de la Enmienda v8.1
 
-El presente documento constituye la especificación técnica y arquitectónica oficial **Versión 8.1** del sistema. Su objetivo es formalizar y gobernar la transición del backend desde los servicios gestionados de *Supabase Cloud* hacia una **arquitectura de ejecución 100% local y offline sobre PostgreSQL 15**, preservando de manera estricta e inalterada todos los requisitos funcionales, reglas de negocio y garantías de seguridad establecidos en el SRS v8.0 original.
+El presente documento constituye la especificación técnica y arquitectónica oficial **Versión 8.1** del sistema. Su objetivo es formalizar y gobernar la transición del backend desde los servicios gestionados de *Supabase Cloud* hacia una **arquitectura de ejecución 100% local y offline sobre PostgreSQL 15**, así como la incorporación del sistema de diseño desacoplado en el frontend, preservando de manera estricta e inalterada todos los requisitos funcionales, reglas de negocio y garantías de seguridad establecidos en el SRS v8.0 original.
 
 ### 1.1 Declaración de Independencia de Supabase Cloud
 En esta versión 8.1:
@@ -25,12 +25,15 @@ En esta versión 8.1:
 
 ## 2. Pila Tecnológica Vigente (Stack v8.1)
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                               Navegador Web                                 │
-│  - Svelte 5 / SvelteKit 2 (SSR + Hidratación Reactiva)                      │
+│  - Svelte 5 / SvelteKit 2 (SSR + Hidratación Reactiva con Runes)            │
 │  - TailwindCSS 4 para diseño y layout responsivo                            │
+│  - Sistema de Diseño Desacoplado: Badge, Button, Card, Input, utilidad cn   │
+│  - Iconografía vectorial nativa Svelte 5 (lucide-svelte)                    │
 │  - Captura global de eventos de teclado para Escáner USB (<100ms)           │
+│  - Jerarquía unívoca de headings: Breadcrumb como span, h1 único por vista │
 │  - CERO peticiones cliente a APIs externas (src/lib/supabase/client.ts stub)│
 └──────────────────────────────────────┬──────────────────────────────────────┘
                                        │ HTTP / Form Actions / Cookies HTTP-only
@@ -63,6 +66,9 @@ En esta versión 8.1:
 │  - Bitácora inmutable de movimientos (inventory_logs)                       │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+> ℹ️ **Aclaración sobre Runtime y Dependencias de UI:**
+> El runtime del frontend es 100% Svelte 5 / SvelteKit 2. El paquete `lucide-react` instalado en `package.json` es una dependencia inactiva del ecosistema React que no interviene en el runtime ni en la compilación de la aplicación Svelte, registrada formalmente como deuda técnica (`DEBT-DEP-001`).
 
 ---
 
@@ -148,19 +154,19 @@ Todas las garantías requeridas por el SRS v8.0 se mantienen operativas al 100%:
 
 ---
 
-## 6. Compatibilidad con SRS v8.0
+## 6. Sistema Visual y Contratos E2E de Interfaz
 
-### Qué permanece idéntico funcionalmente:
-1. **Reglas de Negocio:** Validación de precios positivos, stock mínimo, importes fraccionados a 3 decimales (`NUMERIC(10,3)`), lectura de código de barras < 100 ms y terminador `Enter`.
-2. **Esquema de Datos:** Las tablas `products`, `product_costs`, `stock_outlets`, `stock_outlet_items` e `inventory_logs` conservan sus tipos de datos, restricciones de integridad y llaves foráneas.
-3. **Firmas de Procedimientos Almacenados (RPCs):** Las funciones `upsert_product_with_cost`, `process_stock_outlet` y `cancel_stock_outlet` mantienen sus parámetros, tipos y comportamiento exactos.
-4. **Contratos de UI y Rutas:** `/login`, `/caja`, `/admin/productos`, `/admin/historial` y `/admin/auditoria` presentan las mismas interfaces y flujos de usuario.
-
-### Qué cambió a nivel de infraestructura:
-1. **Motor de Datos:** De Supabase Cloud administrado a contenedor PostgreSQL 15 Docker local (`pg_integration_test`, puerto 5433).
-2. **Driver de Conexión:** De `@supabase/ssr` vía llamadas REST HTTP (PostgREST) a socket TCP nativo Node.js gestionado con `pg.Pool`.
-3. **Proveedor de Identidad:** De GoTrue Cloud a servicio de autenticación local SvelteKit con cookie firmada.
-4. **Almacenamiento de Archivos:** Las imágenes no dependen de buckets de Supabase Storage; se direccionan vía URLs locales o estáticas en `image_url`.
+En la versión 8.1 se incorporan formalmente los lineamientos de interfaz derivados del trabajo visual de `fer_test`:
+1. **Componentes Base Desacoplados:** Utilización de primitivas atómicas (`Badge`, `Button`, `Card`, `Input`) bajo `src/lib/components/ui/` estilizadas con TailwindCSS y combinadas mediante `cn`.
+2. **Jerarquía Unívoca de Headings:**
+   - El breadcrumb global en el layout no actúa como heading (`<span>`), garantizando que cada página defina su único `<h1>` canónico.
+   - `/caja` expone `<h1 class="...">Punto de Venta (Caja)</h1>`.
+   - `/admin/historial` expone `<h1>Historial de Ventas y Devoluciones</h1>`.
+   - `/admin/auditoria` expone `<h1>Bitácora de Auditoría de Stock</h1>`.
+   - `/admin/productos` expone `<h1>Gestión de Productos</h1>`.
+3. **Contratos Textuales Inmutables para Automatización E2E:**
+   - En escáner USB: etiqueta `Último: {lastScannedCode}`.
+   - En confirmación de cobro: `ID Salida: {completedSale.id}`.
 
 ---
 
@@ -173,6 +179,8 @@ Todas las garantías requeridas por el SRS v8.0 se mantienen operativas al 100%:
 | **Gestión de Sesiones** | JWT emitido y refrescado por GoTrue Cloud | Cookie `app_session` HTTP-only firmada con HMAC-SHA256 |
 | **Capa de Conexión de Datos** | Clientes `@supabase/ssr` y PostgREST HTTP | Driver nativo `pg.Pool` sobre socket TCP (puerto 5433) |
 | **Cliente de Navegador** | `createBrowserClient` en `$lib/supabase/client` | Neutralizado (`supabase = null`); 100% de operaciones vía SvelteKit Server |
+| **Sistema Visual** | Estilos embebidos ad-hoc | Sistema de componentes desacoplado (`src/lib/components/ui/`) e iconografía Svelte 5 |
+| **Jerarquía de Headings** | No estandarizada | Encabezado `<h1>` semántico estricto por vista; breadcrumb global como `<span>` |
 | **Almacenamiento de Imágenes** | Supabase Storage Cloud proyectado | Campo `image_url` con soporte para URLs estáticas locales |
 | **Entorno de Validación Canónico** | Proyecto remoto Supabase Cloud | Contenedor local Docker `pg_integration_test` |
 
@@ -190,8 +198,14 @@ La presente arquitectura v8.1 ha sido demostrada empíricamente y validada en su
   *(1 prueba skipped correspondiente al wrapper de Playwright dentro de Vitest).*
 * **Prueba End-to-End en Navegador Real (`npx playwright test`):**
   ```text
-  1 passed (flujo vertical crítico completo validado en Chromium)
+  1 passed, 0 failed (flujo vertical crítico completo validado en Chromium)
   ```
   *Corte vertical demostrado:* Browser → SvelteKit → Autenticación Local → Cookie HTTP-only → PostgreSQL local (puerto 5433) → RLS activo → RPC `process_stock_outlet` → Login Admin → RPC `cancel_stock_outlet` → Verificación en Log de Auditoría UI.
-* **Validación RLS/RPC en Base de Datos Local:** 10/10 criterios de aislamiento y permisos verificados con éxito (Cajero bloqueado en costos y auditoría; Admin autorizado; RPCs evaluando contexto transaccional).
-* **Integridad Git:** `git diff --check` limpio (0 errores de whitespace) y working tree sin modificaciones de código pendientes.
+* **Compilación de Producción (`npm run build`):**
+  ```text
+  ✓ built in 7.04s (client)
+  ✓ built in 21.15s (server)
+  > Using @sveltejs/adapter-node
+    ✔ done
+  ```
+* **Integridad Git:** `git diff --check` limpio (0 errores de formato o espacios en blanco) y working tree sin modificaciones de código pendientes.

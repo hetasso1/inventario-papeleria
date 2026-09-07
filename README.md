@@ -1,13 +1,13 @@
 # Web App de Inventario y Punto de Venta para Papelería
 
-[![SvelteKit](https://img.shields.io/badge/SvelteKit-2.0-orange?style=flat-square&logo=svelte)](https://kit.svelte.dev/)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue?style=flat-square&logo=typescript)](https://www.typescriptlang.org/)
-[![TailwindCSS](https://img.shields.io/badge/TailwindCSS-3.4-38B2AC?style=flat-square&logo=tailwind-css)](https://tailwindcss.com/)
-[![Supabase](https://img.shields.io/badge/Supabase-PostgreSQL%2015-3ECF8E?style=flat-square&logo=supabase)](https://supabase.com/)
-[![Vitest](https://img.shields.io/badge/Vitest-Unit%20%26%20DB-green?style=flat-square&logo=vitest)](https://vitest.dev/)
-[![Playwright](https://img.shields.io/badge/Playwright-E2E-45ba4b?style=flat-square&logo=playwright)](https://playwright.dev/)
+[![SvelteKit](https://img.shields.io/badge/SvelteKit-2.63-orange?style=flat-square&logo=svelte)](https://kit.svelte.dev/)
+[![Svelte](https://img.shields.io/badge/Svelte-5.56-red?style=flat-square&logo=svelte)](https://svelte.dev/)
+[![TailwindCSS](https://img.shields.io/badge/TailwindCSS-4.3-38B2AC?style=flat-square&logo=tailwind-css)](https://tailwindcss.com/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15%20Local%20(Docker)-336791?style=flat-square&logo=postgresql)](https://www.postgresql.org/)
+[![Vitest](https://img.shields.io/badge/Vitest-92%20passed%2C%201%20skipped-green?style=flat-square&logo=vitest)](https://vitest.dev/)
+[![Playwright](https://img.shields.io/badge/Playwright-1%20passed%20(E2E)-45ba4b?style=flat-square&logo=playwright)](https://playwright.dev/)
 
-Sistema web integral de **Gestión de Inventario y Punto de Venta (POS)** optimizado para papelerías y comercios minoristas. Diseñado para operar con alta velocidad en mostrador mediante escáneres de código de barras USB, ventas fraccionadas, aislamiento confidencial de costos de adquisición y auditoría inmutable en PostgreSQL.
+Sistema web integral de **Gestión de Inventario y Punto de Venta (POS)** optimizado para papelerías y comercios minoristas. Diseñado para operar con alta velocidad en mostrador mediante escáneres de código de barras USB, ventas fraccionadas, aislamiento confidencial de costos de adquisición y auditoría inmutable en PostgreSQL 15 local.
 
 ---
 
@@ -17,19 +17,21 @@ Sistema web integral de **Gestión de Inventario y Punto de Venta (POS)** optimi
 - **Desfase en Inventario:** Previene existencias negativas y ventas concurrentes corruptas a través de transacciones atómicas en base de datos.
 - **Lentitud en Mostrador:** Captura ráfagas de lectores de código de barras USB sin importar el foco del cursor y soporta artículos fraccionados (por metro o decimales).
 - **Pérdida de Trazabilidad:** Prohíbe el borrado físico de registros (*Soft Delete* estricto) y audita de forma automática cada venta, devolución o ajuste manual.
+- **Dependencia de Red Externa:** Funciona de forma 100% autónoma y offline sobre PostgreSQL 15 local sin requerir servicios en la nube para su operación diaria.
 
 ---
 
 ## 2. Características Principales
 
-- 🛒 **Terminal de Punto de Venta (POS):** Carrito reactivo, cálculo de totales en tiempo real y cobro en una sola transacción.
-- ⚡ **Captura Global de Escáner USB:** Intercepción de ráfagas de teclado (<100ms) en la ventana del navegador.
+- 🛒 **Terminal de Punto de Venta (POS):** Carrito reactivo, cálculo de totales en tiempo real y cobro en una sola transacción atómica.
+- ⚡ **Captura Global de Escáner USB:** Intercepción de ráfagas de teclado (<100ms) en la ventana del navegador con resiliencia de foco en `<input>` y `<button>`.
 - 📐 **Soporte de Ventas Fraccionadas:** Manejo de cantidades con precisión de 3 decimales (`NUMERIC(10,3)`).
 - 🔒 **Aislamiento de Costos por RLS:** Acceso exclusivo a costos de adquisición para el rol Administrador.
 - 🛡️ **Bajas Lógicas Obligatorias (Soft Delete):** Desactivación de artículos (`is_active = false`) sin romper llaves foráneas históricas.
-- 🔄 **Cobro y Cancelación Atómica vía RPC:** Procedimientos almacenados PL/pgSQL que garantizan consistencia y reposición automática de stock en devoluciones.
+- 🔄 **Cobro y Cancelación Atómica vía RPC:** Procedimientos almacenados PL/pgSQL que garantizan consistencia y reposición automática de existencias en devoluciones.
 - 📋 **Bitácora Inmutable de Auditoría:** Registro automático de todos los movimientos de almacén (`inventory_logs`).
-- 🖼️ **Referencia de Imágenes de Producto:** Soporte para almacenar y mostrar imágenes mediante URLs externas (`image_url`).
+- 🎨 **Sistema de Diseño UI Desacoplado:** Componentes reutilizables (`Badge`, `Button`, `Card`, `Input`), utilidad de clases `cn` (`clsx` + `tailwind-merge`), tokens semánticos en `layout.css` e iconografía vectorial nativa para Svelte 5 con `lucide-svelte`.
+- 📱 **Shell de Navegación Responsivo:** Barra lateral fija para escritorio, cajón colapsable (*drawer*) para dispositivos móviles y migas de pan semánticas (`<span>`).
 
 ---
 
@@ -44,50 +46,66 @@ Sistema web integral de **Gestión de Inventario y Punto de Venta (POS)** optimi
 
 ## 4. Mapa de Módulos
 
-- **`/login`:** Inicio de sesión seguro con derivación automática de rol mediante autenticación local PostgreSQL y cookies de sesión HTTP-only firmadas.
-- **`/caja`:** Terminal de cobro rápido con escáner USB y catálogo rápido.
+- **`/login`:** Inicio de sesión seguro con derivación automática de rol mediante autenticación local PostgreSQL (PBKDF2) y cookies de sesión HTTP-only firmadas.
+- **`/caja`:** Terminal de cobro rápido con escáner USB, catálogo rápido y encabezado semántico `<h1>Punto de Venta (Caja)</h1>`.
 - **`/admin/productos`:** Alta, edición, precios, costos confidenciales y stock mínimo de alerta.
 - **`/admin/historial`:** Consulta de ventas históricas, desglose de partidas y anulación justificada con reposición de existencias.
-- **`/admin/auditoria`:** Bitácora inmutable de movimientos de almacén con filtros por tipo de evento.
+- **`/admin/auditoria`:** Bitácora inmutable de movimientos de almacén con Server Load SSR y filtros por tipo de evento.
 
 ---
 
 ## 5. Arquitectura del Sistema
 
-```
-[ Navegador Web ] ──► [ SvelteKit SSR (hooks.server.ts / pg.Pool) ] ──► [ PostgreSQL 15 Local (Docker) ]
-  • BarcodeScanner      • Autenticación y RBAC (Cookies)                 • Row Level Security (RLS)
-  • CartTable           • Server-Side Actions                           • RPCs Atómicas (PL/pgSQL)
-  • Admin Views         • Validación de Esquema                         • Triggers de Auditoría
+```text
+[ Navegador Web / Escáner USB ]
+         │ HTTP / Cookies HTTP-only
+         ▼
+[ SvelteKit SSR (hooks.server.ts) ]
+         │ pg.Pool (Transacciones con SET LOCAL ROLE authenticated)
+         ▼
+[ PostgreSQL 15 Local (Docker: pg_integration_test :5433 / inventario_dev) ]
+   ├── Tablas de Dominio con RLS activo: products, product_costs, stock_outlets, stock_outlet_items
+   ├── Bitácora Inmutable: inventory_logs
+   ├── RPCs Atómicas: upsert_product_with_cost, process_stock_outlet, cancel_stock_outlet
+   └── Triggers de Auditoría: trg_audit_product_stock
 ```
 
 ---
 
-## 6. Estado del Proyecto
+## 6. Contratos Visuales y Jerarquía de Headings (E2E)
 
-- **Funcionalidad Principal:** **100% Implementada y Operativa** conforme al SRS v8.0.
-- **Base de Datos y Seguridad:** Esquema DDL, políticas RLS, triggers y funciones RPC verificadas en PostgreSQL 15.
-- **Pruebas Automatizadas:** 92 pruebas unitarias/integración y 1 prueba E2E en Playwright ejecutadas con éxito.
-- **Mejoras Futuras (UX Backlog):** Redirección automática de la ruta raíz `/`, panel de dashboard administrativo, barra de navegación global y vista previa de imagen en modal.
+Para garantizar la estabilidad del flujo vertical crítico automatizado con Playwright:
+1. **Jerarquía Semántica de Headings:**
+   - El breadcrumb global del layout (`src/routes/+layout.svelte`) se renderiza como `<span>` y **no actúa como `<h1>`**, evitando colisiones semánticas.
+   - Cada vista concreta posee su propio y único `<h1>` canónico:
+     - `/login`: `<h1>Inventario Papelería</h1>`
+     - `/caja`: `<h1>Punto de Venta (Caja)</h1>`
+     - `/admin/productos`: `<h1>Gestión de Productos</h1>`
+     - `/admin/historial`: `<h1>Historial de Ventas y Devoluciones</h1>`
+     - `/admin/auditoria`: `<h1>Bitácora de Auditoría de Stock</h1>`
+2. **Contratos Textuales Críticos:**
+   - Indicador de escáner USB: `Último: {lastScannedCode}`.
+   - Modal de venta completada: `ID Salida: {completedSale.id}`.
 
 ---
 
 ## 7. Pruebas y Validación (Testing)
 
-El repositorio incluye suites completas de pruebas automatizadas que validan tanto la base de datos PostgreSQL canónica local como los contratos de interfaz y SSR:
+El repositorio incluye suites completas de pruebas automatizadas que validan tanto la base de datos PostgreSQL local como los contratos de interfaz y SSR:
 
 ```bash
-# Ejecutar todas las pruebas unitarias y de base de datos (PostgreSQL Docker)
+# Ejecutar todas las pruebas unitarias y de integración local (PostgreSQL Docker)
 npm run test
 
-# Ejecutar pruebas End-to-End con Playwright (navegador real)
+# Ejecutar pruebas End-to-End con Playwright (navegador real Chromium)
+npm run build
 npx playwright test
 ```
 
-- **Vitest:** `92 passed | 0 failed | 1 skipped` (93 tests totales).
+- **Vitest:** `92 passed | 1 skipped | 0 failed` (93 tests totales).
 - **PostgreSQL 15 Local (Docker):** 18 tests de integración DB (`tests/db/*.test.ts`) pasando al 100%.
-- **Cloud Integration:** `7 passed | 0 failed | 0 skipped` (`tests/cloud/supabase_cloud.test.ts`).
-- **Playwright E2E:** `1 passed` (Flujo crítico de venta, escáner USB, cobro y devolución en Chromium).
+- **Cloud Compatibility:** `7 passed | 0 failed | 0 skipped` (`tests/cloud/supabase_cloud.test.ts`).
+- **Playwright E2E:** `1 passed, 0 failed` (Flujo vertical completo: Login Cajero → RBAC → Scanner USB → Cobro RPC → Login Admin → Devolución RPC → Auditoría UI).
 
 ---
 
@@ -96,8 +114,7 @@ npx playwright test
 ### Requisitos Previos
 - **Node.js:** Versión 20.x o 22.x LTS.
 - **npm:** Versión 10.x o superior.
-- **Docker Desktop / Docker Engine:** Para la base de datos PostgreSQL 15 local y ejecución de pruebas de integración DB.
-- **Opcional (Despliegue Remoto):** Proyecto en Supabase Cloud.
+- **Docker Desktop / Docker Engine:** Para la base de datos PostgreSQL 15 local y ejecución de pruebas.
 
 ---
 
@@ -132,7 +149,7 @@ docker start pg_integration_test
 docker exec -i pg_integration_test psql -U postgres -c "DROP DATABASE IF EXISTS inventario_dev WITH (FORCE);" -c "CREATE DATABASE inventario_dev;"
 ```
 
-**B. Configurar esquema de compatibilidad Supabase (`auth` y funciones):**
+**B. Configurar esquema de compatibilidad (`auth` y funciones):**
 ```bash
 docker exec -i pg_integration_test psql -U postgres -d inventario_dev -c "CREATE SCHEMA IF NOT EXISTS auth; CREATE TABLE IF NOT EXISTS auth.users (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), raw_app_meta_data JSONB DEFAULT '{}'::jsonb, created_at TIMESTAMPTZ DEFAULT now()); CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid AS \$\$ SELECT COALESCE(NULLIF(current_setting('request.jwt.claim.sub', true), ''), (NULLIF(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub'))::uuid; \$\$ LANGUAGE sql STABLE; CREATE OR REPLACE FUNCTION auth.jwt() RETURNS jsonb AS \$\$ SELECT COALESCE(NULLIF(current_setting('request.jwt.claims', true), '')::jsonb, '{}'::jsonb); \$\$ LANGUAGE sql STABLE; DO \$\$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'authenticated') THEN CREATE ROLE authenticated; END IF; END \$\$; GRANT ALL ON SCHEMA public TO authenticated; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO authenticated; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO authenticated; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON ROUTINES TO authenticated;"
 ```
@@ -151,25 +168,20 @@ docker exec -i pg_integration_test psql -U postgres -d inventario_dev < supabase
 docker exec -i pg_integration_test psql -U postgres -d inventario_dev < supabase/migrations/20260902000000_fix_stock_outlet_items_rls.sql
 ```
 
-**D. Otorgar permisos finales y crear usuarios de prueba:**
+**D. Otorgar permisos finales y registrar usuarios canónicos:**
 ```bash
 docker exec -i pg_integration_test psql -U postgres -d inventario_dev -c "GRANT ALL ON ALL TABLES IN SCHEMA public TO authenticated; GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO authenticated; GRANT ALL ON ALL ROUTINES IN SCHEMA public TO authenticated; GRANT USAGE ON SCHEMA auth TO authenticated; GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA auth TO authenticated; GRANT SELECT ON auth.users TO authenticated; ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS email VARCHAR(255) UNIQUE; ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS encrypted_password TEXT; INSERT INTO auth.users (id, email, raw_app_meta_data) VALUES ('11111111-1111-1111-1111-111111111111', 'admin@papeleria.com', '{\"role\": \"admin\"}') ON CONFLICT (id) DO UPDATE SET email = EXCLUDED.email, raw_app_meta_data = EXCLUDED.raw_app_meta_data; INSERT INTO auth.users (id, email, raw_app_meta_data) VALUES ('22222222-2222-2222-2222-222222222222', 'cajero@papeleria.com', '{\"role\": \"cajero\"}') ON CONFLICT (id) DO UPDATE SET email = EXCLUDED.email, raw_app_meta_data = EXCLUDED.raw_app_meta_data;"
 ```
 
-#### 5. Verificar que PostgreSQL Local está Funcionando
-Ejecutar la siguiente comprobación SQL para validar que las 5 tablas existen, tienen RLS activo (`rowsecurity = t`) y las RPCs están registradas:
-```bash
-docker exec -i pg_integration_test psql -U postgres -d inventario_dev -c "SELECT current_database(), version();" -c "SELECT tablename, rowsecurity FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename;" -c "SELECT policyname, tablename, cmd FROM pg_policies WHERE schemaname = 'public' ORDER BY tablename, policyname;"
-```
-
-#### 6. Configurar Variables de Entorno
+#### 5. Configurar Variables de Entorno
 Copiar el archivo `.env.example` a `.env.local`:
 ```bash
 cp .env.example .env.local
 ```
-Completar las variables locales y de prueba:
+
+Configuración local canónica (`.env.local`):
 ```env
-# Conexión local canónica
+# Conexión local PostgreSQL (pg.Pool)
 DATABASE_URL=postgresql://postgres:postgres@localhost:5433/inventario_dev
 PGHOST=localhost
 PGPORT=5433
@@ -177,44 +189,46 @@ PGUSER=postgres
 PGPASSWORD=postgres
 PGDATABASE=inventario_dev
 
-# Supabase (para ejecución de pruebas y desarrollo)
-PUBLIC_SUPABASE_URL=https://your-project-id.supabase.co
-PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
+# Secreto criptográfico de sesión (HMAC-SHA256)
+SESSION_SECRET=super-secret-session-key-at-least-32-chars-long!
+
+# Credenciales canónicas de prueba
 TEST_ADMIN_EMAIL=admin@papeleria.com
 TEST_ADMIN_PASSWORD=admin777
 TEST_CAJERO_EMAIL=cajero@papeleria.com
 TEST_CAJERO_PASSWORD=cajero111
 ```
 
-#### 7. Ejecutar Pruebas y Servidor
+#### 6. Ejecutar Servidor en Desarrollo
 ```bash
-# Validar suite completa (92 passed, 0 failed, 1 skipped)
-npm run test
-
-# Iniciar servidor de desarrollo SvelteKit
 npm run dev
 ```
 Abrir en el navegador: [http://localhost:5173/login](http://localhost:5173/login)
 
-#### 8. Compilar y Ejecutar en Modo Producción
+#### 7. Compilar y Ejecutar en Modo Producción
 ```bash
 npm run build
 node build
 ```
 
-## 9. Seguridad de Credenciales
+---
 
-> ⚠️ **Aviso Importante:** El archivo `.env.local` contiene credenciales reales de conexión y está estrictamente excluido del repositorio mediante `.gitignore`. Nunca exponga claves de servicio (`service_role`), JWT ni contraseñas en el control de versiones.
+## 9. Seguridad y Manejo de Credenciales
+
+> ⚠️ **Aviso Importante:** El archivo `.env.local` contiene credenciales locales de conexión y está estrictamente excluido del repositorio mediante `.gitignore`. Nunca exponga claves de servicio ni contraseñas en el control de versiones.
 
 ---
 
 ## 10. Índice de Documentación Oficial
 
-Consulte los documentos técnicos y manuales funcionales disponibles en la carpeta [`docs/`](file:///d:/proyectos%20$/inventario_papeleria/docs):
+Consulte los documentos técnicos y manuales funcionales disponibles en el repositorio:
 
-- 📋 **[Especificación Funcional Completa](file:///d:/proyectos%20$/inventario_papeleria/docs/ESPECIFICACION_FUNCIONAL.md):** Descripción detallada de identidad, actores, matriz de permisos, casos de uso (CU-01 a CU-18) y reglas de negocio.
-- 👤 **[Manual de Usuario](file:///d:/proyectos%20$/inventario_papeleria/docs/MANUAL_USUARIO.md):** Guía operativa para cajeros y personal de mostrador.
-- 🛡️ **[Guía del Administrador](file:///d:/proyectos%20$/inventario_papeleria/docs/GUIA_ADMINISTRADOR.md):** Manual de supervisión, catálogo, costos confidenciales y devoluciones.
-- 🚀 **[Instalación y Deployment](file:///d:/proyectos%20$/inventario_papeleria/docs/INSTALACION_Y_DEPLOYMENT.md):** Guía técnica de instalación limpia, configuración de servidor y despliegue en producción.
-- 🏗️ **[Arquitectura del Sistema](file:///d:/proyectos%20$/inventario_papeleria/docs/ARQUITECTURA.md):** Especificación técnica de componentes, flujo de datos, RLS y esquemas DDL.
-- 📄 **[Documento de Requerimientos de Software (SRS) v8.0](file:///d:/proyectos%20$/inventario_papeleria/Documento%20de%20Requerimientos%20de%20Software%20(SRS)%20%E2%80%94%20Versi%C3%B3n%208.0%20(Especificaci%C3%B3n%20de%20Arquitectura%20Final).pdf):** Documento formal de requisitos y arquitectura base.
+- 🏗️ **[Arquitectura del Sistema (ARQUITECTURA.md)](file:///d:/proyectos%20$/inventario_papeleria/ARQUITECTURA.md):** Especificación técnica exhaustiva de componentes, flujo de datos, RLS, RPCs, sistema visual y modelos de datos.
+- 📌 **[Estado Cero (Estado_cero.md)](file:///d:/proyectos%20$/inventario_papeleria/Estado_cero.md):** Baseline arquitectónico, invariantes técnicos y reglas de soberanía local.
+- 📑 **[SRS v8.1 — Arquitectura Local (docs/SRS_v8.1_Arquitectura_Local.md)](file:///d:/proyectos%20$/inventario_papeleria/docs/SRS_v8.1_Arquitectura_Local.md):** Enmienda formal que gobierna la ejecución 100% offline sobre PostgreSQL 15.
+- 📋 **[Especificación Funcional (docs/ESPECIFICACION_FUNCIONAL.md)](file:///d:/proyectos%20$/inventario_papeleria/docs/ESPECIFICACION_FUNCIONAL.md):** Matriz de permisos y casos de uso (CU-01 a CU-18).
+- 👤 **[Manual de Usuario (docs/MANUAL_USUARIO.md)](file:///d:/proyectos%20$/inventario_papeleria/docs/MANUAL_USUARIO.md):** Guía operativa para cajeros y personal de mostrador.
+- 🛡️ **[Guía del Administrador (docs/GUIA_ADMINISTRADOR.md)](file:///d:/proyectos%20$/inventario_papeleria/docs/GUIA_ADMINISTRADOR.md):** Manual de supervisión, catálogo, costos confidenciales y devoluciones.
+- 🚀 **[Instalación y Deployment (docs/INSTALACION_Y_DEPLOYMENT.md)](file:///d:/proyectos%20$/inventario_papeleria/docs/INSTALACION_Y_DEPLOYMENT.md):** Guía técnica de aprovisionamiento en servidores dedicados.
+- 🛠️ **[Deuda Técnica (deuda_tecnica.md)](file:///d:/proyectos%20$/inventario_papeleria/deuda_tecnica.md):** Registro histórico de sprints, control de issues y catálogo de dependencias.
+- 📄 **[Documento de Requerimientos de Software (SRS) v8.0](file:///d:/proyectos%20$/inventario_papeleria/Documento%20de%20Requerimientos%20de%20Software%20(SRS)%20%E2%80%94%20Versi%C3%B3n%208.0%20(Especificaci%C3%B3n%20de%20Arquitectura%20Final).pdf):** Documento formal de requisitos y arquitectura base histórica.

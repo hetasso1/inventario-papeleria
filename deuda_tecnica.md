@@ -100,6 +100,7 @@
 
 | Sprint | Issue | Estado | Cambios Clave | Skill Actualizado |
 | :--- | :--- | :--- | :--- | :--- |
+| 18 | DOCS-ALIGNMENT | ✅ Aprobado | Alineación documental integral post-integración de fer_test y estabilización E2E: armonización de Estado_cero.md, README.md, ARQUITECTURA.md, docs/SRS_v8.1_Arquitectura_Local.md y deuda_tecnica.md; formalización del sistema de diseño UI (Badge, Button, Card, Input, cn), iconografía Svelte 5 (lucide-svelte), contratos visuales E2E (/caja <h1>, Último:, ID Salida:) y registro formal de deuda técnica de dependencias (DEBT-DEP-001, DEBT-DEP-002) sin alterar código ni runtime. | N/A |
 | 17 | E2E-CONTRATOS | ✅ Aprobado | Restauración de contratos visuales y jerarquía de headings tras merge de fer_test: resolución de colisión de headings (breadcrumb global a <span> y heading semántico único en /caja a <h1>), ajuste de contratos textuales de escáner ('Último:') y modal de venta ('ID Salida:'). Suite 100% verde (Playwright: 1 passed; Vitest: 92 passed, 1 skipped; Build: exit 0). | N/A |
 | 16 | ARQUITECTURA | ✅ Aprobado | Actualización integral de docs/ARQUITECTURA.md alineada con el SRS v8.1: formalización de PostgreSQL 15 local en Docker (pg_integration_test), conexión nativa con pg.Pool, autenticación local con PBKDF2 en auth.users, sesiones con cookies HTTP-only firmadas (HMAC-SHA256), RLS activo con SET LOCAL transaccional y clasificación de Supabase Cloud como referencia histórica. | N/A |
 | 15 | SRS-v8.1 | ✅ Aprobado | Formalización de la enmienda técnica y arquitectónica en docs/SRS_v8.1_Arquitectura_Local.md, consolidando el funcionamiento 100% local sobre PostgreSQL 15 en Docker, driver pg.Pool, autenticación por cookies HTTP-only y actualización de Estado_cero.md, preservando la trazabilidad histórica del SRS v8.0 original. | N/A |
@@ -118,3 +119,17 @@
 | 2 | ISSUE-001 | ✅ Aprobado | Suite de pruebas de integración DB en PostgreSQL 15: RLS en product_costs, Soft Delete, atomicidad e idempotencia en process_stock_outlet, RBAC y reversión en cancel_stock_outlet (18 tests nuevos, 32/32 tests pasando) | N/A |
 | 1 | ISSUE-000 | ✅ Aprobado | Scaffold SvelteKit+TS+TailwindCSS, clientes Supabase (browser/server), hooks.server.ts mínimo, migración v8.0 validada contra PostgreSQL 15 (0 errores SQL), 14 tests Vitest pasando | N/A |
 | — | — | — | Registro inicial de backlog completo (SRS v8.0) | N/A |
+
+---
+
+## Deuda Técnica de Dependencias y Mantenimiento
+
+- [ ] ⏳ **DEBT-DEP-001: Dependencia Huérfana del Ecosistema React (`lucide-react`)**
+  - **Módulo:** Dependencias de Proyecto (`package.json`)
+  - **Descripción:** Durante la integración de los componentes visuales de `fer_test`, se instaló la biblioteca `lucide-react` (`^1.41.0`). El proyecto utiliza exclusivamente Svelte 5 / SvelteKit 2 como runtime de frontend y consume los iconos vectoriales nativos de `lucide-svelte` (`^1.0.1`). `lucide-react` no es importado por ningún componente ni forma parte del bundle de producción compilado con `@sveltejs/adapter-node`, pero permanece en `package.json` para no alterar el árbol de dependencias en sprints no dedicados a mantenimiento de paquetes.
+  - **Plan de mitigación:** Ejecutar `npm uninstall lucide-react` y regenerar `package-lock.json` en un sprint futuro de depuración de dependencias.
+
+- [ ] ⏳ **DEBT-DEP-002: Alias Redundante de Iconografía (`@lucide/svelte`)**
+  - **Módulo:** Dependencias de Proyecto (`package.json`)
+  - **Descripción:** Coexistencia de `@lucide/svelte` (`^1.41.0`) y `lucide-svelte` (`^1.0.1`). La aplicación importa sistemáticamente sus componentes de iconos desde `lucide-svelte`.
+  - **Plan de mitigación:** Remover `@lucide/svelte` en el próximo sprint de consolidación de dependencias.
