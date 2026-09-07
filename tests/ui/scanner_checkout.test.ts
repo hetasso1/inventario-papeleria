@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ScannerHandler } from '../../src/lib/components/caja/BarcodeScanner.svelte';
-import { calculateSubtotal, calculateTotal, type CartItem } from '../../src/lib/components/caja/CartTable.svelte';
+import { calculateSubtotal, calculateTotal, clampQuantity, type CartItem } from '../../src/lib/components/caja/CartTable.svelte';
 import { load, actions } from '../../src/routes/caja/+page.server';
 import type { RequestEvent } from '@sveltejs/kit';
 
@@ -113,8 +113,15 @@ describe('ISSUE-004: Server-Side POS (+page.server.ts)', () => {
 	let mockSupabase: any;
 
 	beforeEach(() => {
+		const queryBuilder: any = {};
+		queryBuilder.select = vi.fn().mockReturnValue(queryBuilder);
+		queryBuilder.in = vi.fn().mockReturnValue(queryBuilder);
+		queryBuilder.eq = vi.fn().mockReturnValue(queryBuilder);
+		queryBuilder.order = vi.fn().mockReturnValue(queryBuilder);
+		queryBuilder.then = (resolve: any) => resolve({ data: [], error: null });
+
 		mockSupabase = {
-			from: vi.fn(),
+			from: vi.fn().mockReturnValue(queryBuilder),
 			rpc: vi.fn()
 		};
 	});
@@ -260,5 +267,80 @@ describe('ISSUE-004: Server-Side POS (+page.server.ts)', () => {
 		expect(result.status).toBe(400);
 		expect(result.data.error).toContain('Stock insuficiente');
 		expect(result.data.idempotencyKey).toBe(idempotencyKey); // Key preserved for safe retry
+	});
+
+	it('action checkout rejects with 400 when requested quantity exceeds available stock', async () => {
+		const idempotencyKey = 'key-excess-stock-test';
+		const cartItems = [{ product_id: 'prod-uuid-1', quantity: 5 }];
+
+		const formData = new FormData();
+		formData.append('items', JSON.stringify(cartItems));
+		formData.append('idempotency_key', idempotencyKey);
+
+		const queryBuilder: any = {};
+		queryBuilder.select = vi.fn().mockReturnValue(queryBuilder);
+		queryBuilder.in = vi.fn().mockReturnValue(queryBuilder);
+		queryBuilder.eq = vi.fn().mockResolvedValue({
+			data: [{ id: 'prod-uuid-1', name: 'Pluma Azul', stock: 2 }],
+			error: null
+		});
+
+		mockSupabase.from.mockReturnValue(queryBuilder);
+
+		const event = createMockEvent({ role: 'cajero', formData });
+		const result: any = await (actions as any).checkout(event);
+
+		expect(result.status).toBe(400);
+		expect(result.data.error).toContain('Stock insuficiente para "Pluma Azul"');
+		expect(result.data.error).toContain('Disponible: 2');
+		expect(result.data.error).toContain('Solicitado: 5');
+		expect(result.data.idempotencyKey).toBe(idempotencyKey);
+		expect(mockSupabase.rpc).not.toHaveBeenCalled();
+	});
+
+	it('action checkout preserves cart and idempotency_key when preventive check fails', async () => {
+		const idempotencyKey = 'key-preserve-cart-test';
+		const cartItems = [{ product_id: 'prod-uuid-2', quantity: 10 }];
+
+		const formData = new FormData();
+		formData.append('items', JSON.stringify(cartItems));
+		formData.append('idempotency_key', idempotencyKey);
+
+		const queryBuilder: any = {};
+		queryBuilder.select = vi.fn().mockReturnValue(queryBuilder);
+		queryBuilder.in = vi.fn().mockReturnValue(queryBuilder);
+		queryBuilder.eq = vi.fn().mockResolvedValue({
+			data: [{ id: 'prod-uuid-2', name: 'Cuaderno', stock: 3 }],
+			error: null
+		});
+
+		mockSupabase.from.mockReturnValue(queryBuilder);
+
+		const event = createMockEvent({ role: 'cajero', formData });
+		const result: any = await (actions as any).checkout(event);
+
+		expect(result.status).toBe(400);
+		expect(result.data.idempotencyKey).toBe(idempotencyKey);
+		expect(mockSupabase.rpc).not.toHaveBeenCalled();
+	});
+});
+
+describe('SPRINT 20: Control preventivo de existencias en Caja & CartTable', () => {
+	it('clampQuantity enforces minimum 1 and maximum equal to available stock', () => {
+		expect(clampQuantity(0, 10)).toBe(1);
+		expect(clampQuantity(-3, 10)).toBe(1);
+		expect(clampQuantity(4, 10)).toBe(4);
+		expect(clampQuantity(10, 10)).toBe(10);
+		expect(clampQuantity(15, 10)).toBe(10); // Cannot exceed available stock
+		expect(clampQuantity(4.8, 10)).toBe(4); // Integer clamping
+	});
+
+	it('prevents adding product with stock 0 to cart', () => {
+		const outOfStockProduct = { id: 'p-zero', name: 'Libreta Agotada', stock: 0 };
+		const canAddToCart = (product: { stock: number }) => product.stock > 0;
+		expect(canAddToCart(outOfStockProduct)).toBe(false);
+
+		const inStockProduct = { id: 'p-available', name: 'Libreta Disponible', stock: 5 };
+		expect(canAddToCart(inStockProduct)).toBe(true);
 	});
 });

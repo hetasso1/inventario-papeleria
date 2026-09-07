@@ -20,9 +20,10 @@
 			if (filterStatus === "canceled" && !outlet.is_canceled)
 				return false;
 
-			// Search filter (by ID, reason, or SKU in items)
+			// Search filter (by Folio, ID, reason, or SKU in items)
 			if (!searchQuery.trim()) return true;
 			const term = searchQuery.toLowerCase();
+			const matchFolio = outlet.folio != null && String(outlet.folio).includes(term);
 			const matchId = outlet.id.toLowerCase().includes(term);
 			const matchReason = outlet.cancel_reason
 				?.toLowerCase()
@@ -32,7 +33,7 @@
 					i.product_name.toLowerCase().includes(term) ||
 					i.sku_code.toLowerCase().includes(term),
 			);
-			return matchId || matchReason || matchItem;
+			return matchFolio || matchId || matchReason || matchItem;
 		}),
 	);
 
@@ -399,19 +400,13 @@
 										? 'bg-red-50/20'
 										: ''}"
 								>
-									<!-- Folio ID -->
+									<!-- Folio & UUID -->
 									<td class="px-4 py-3.5">
 										<div
 											class="font-mono text-xs text-slate-900 font-semibold flex items-center gap-1.5"
 										>
-											<span class="text-slate-400">#</span
-											>
-											<span
-												>{outlet.id.slice(
-													0,
-													8,
-												)}...{outlet.id.slice(-4)}</span
-											>
+											<span class="text-slate-400">#</span>
+											<span>{outlet.folio != null ? outlet.folio : outlet.id.slice(0, 8)}</span>
 										</div>
 										<div
 											class="text-[10px] text-slate-400 font-mono"
@@ -562,8 +557,13 @@
 						class="flex items-center justify-between border-b border-slate-100 pb-3"
 					>
 						<div>
-							<h3 class="text-lg font-bold text-slate-900">
-								Detalle de Salida de Inventario
+							<h3 class="text-lg font-bold text-slate-900 flex items-center gap-2">
+								<span>Detalle de Salida de Inventario</span>
+								{#if selectedOutletForDetail.folio != null}
+									<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-mono font-semibold bg-slate-100 text-slate-800 border border-slate-200">
+										Folio #{selectedOutletForDetail.folio}
+									</span>
+								{/if}
 							</h3>
 							<p class="text-xs text-slate-500 font-mono">
 								ID: {selectedOutletForDetail.id}
@@ -764,10 +764,11 @@
 								Solicitar Devolución / Cancelación
 							</h3>
 							<p class="text-xs text-slate-500 font-mono">
-								Venta: {selectedOutletForCancel.id.slice(
-									0,
-									8,
-								)}...
+								{#if selectedOutletForCancel.folio != null}
+									Folio #{selectedOutletForCancel.folio} • ID: {selectedOutletForCancel.id.slice(0, 8)}...
+								{:else}
+									Venta: {selectedOutletForCancel.id.slice(0, 8)}...
+								{/if}
 							</p>
 						</div>
 					</div>

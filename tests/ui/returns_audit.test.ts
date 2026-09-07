@@ -252,6 +252,52 @@ describe('ISSUE-005: Sales History & Returns (+page.server.ts)', () => {
 		expect(queryBuilder.lte).toHaveBeenCalledWith('created_at', `${todayStr}T23:59:59.999Z`);
 	});
 
+	it('historial load includes official numeric folio in outlets and respects null/number', async () => {
+		const sampleOutlets = [
+			{
+				id: 'outlet-uuid-folio-1001',
+				folio: 1001,
+				user_id: 'cajero-uuid-1',
+				total_amount: 150.0,
+				is_canceled: false,
+				canceled_at: null,
+				canceled_by: null,
+				cancel_reason: null,
+				created_at: '2026-09-06T10:00:00Z',
+				stock_outlet_items: [
+					{ id: 'i1', product_id: 'p1', quantity: 2, unit_price: 75.0, subtotal: 150.0, products: { name: 'Item 1', sku_code: 'SKU-1' } }
+				]
+			},
+			{
+				id: 'outlet-uuid-no-folio',
+				folio: null,
+				user_id: 'cajero-uuid-2',
+				total_amount: 50.0,
+				is_canceled: false,
+				canceled_at: null,
+				canceled_by: null,
+				cancel_reason: null,
+				created_at: '2026-09-06T11:00:00Z',
+				stock_outlet_items: [
+					{ id: 'i2', product_id: 'p2', quantity: 1, unit_price: 50.0, subtotal: 50.0, products: { name: 'Item 2', sku_code: 'SKU-2' } }
+				]
+			}
+		];
+
+		const orderMock = vi.fn().mockResolvedValue({ data: sampleOutlets, error: null });
+		const selectMock = vi.fn().mockReturnValue({ order: orderMock });
+		mockSupabase.from.mockReturnValue({ select: selectMock });
+
+		const event = createMockEvent({ role: 'admin' });
+		const result: any = await historialLoad(event as any);
+
+		expect(result.outlets).toHaveLength(2);
+		expect(result.outlets[0].folio).toBe(1001);
+		expect(result.outlets[0].id).toBe('outlet-uuid-folio-1001');
+		expect(result.outlets[1].folio).toBeNull();
+		expect(selectMock).toHaveBeenCalledWith(expect.stringContaining('folio'));
+	});
+
 	it('historial cancel action invokes cancel_stock_outlet RPC with outlet ID and reason', async () => {
 		const formData = new FormData();
 		formData.append('outlet_id', 'outlet-uuid-1');

@@ -42,6 +42,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		.from('stock_outlets')
 		.select(`
 			id,
+			folio,
 			user_id,
 			total_amount,
 			is_canceled,
@@ -156,6 +157,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 
 		return {
 			id: o.id,
+			folio: o.folio !== undefined && o.folio !== null ? Number(o.folio) : null,
 			user_id: o.user_id,
 			total_amount: Number(o.total_amount),
 			is_canceled: Boolean(o.is_canceled),

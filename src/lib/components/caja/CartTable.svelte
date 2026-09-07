@@ -17,6 +17,15 @@
 		const total = items.reduce((acc, item) => acc + item.price * item.quantity, 0);
 		return Math.round(total * 100) / 100;
 	}
+
+	/**
+	 * Clamps quantity to integer range [1, maxStock].
+	 */
+	export function clampQuantity(value: number, maxStock: number): number {
+		if (isNaN(value) || value < 1) return 1;
+		const max = Math.max(1, Math.floor(maxStock));
+		return Math.min(max, Math.floor(value));
+	}
 </script>
 
 <script lang="ts">
@@ -42,14 +51,16 @@
 	);
 
 	function handleQuantityChange(id: string, value: number) {
-		if (isNaN(value) || value < 1) {
-			return;
-		}
-		onUpdateQuantity(id, Math.max(1, Math.floor(value)));
+		const item = items.find((i) => i.id === id);
+		if (!item) return;
+		const bounded = clampQuantity(value, item.stock);
+		onUpdateQuantity(id, bounded);
 	}
 
 	function increment(item: CartItem) {
-		handleQuantityChange(item.id, Math.floor(item.quantity) + 1);
+		if (item.quantity < Math.floor(item.stock)) {
+			handleQuantityChange(item.id, Math.floor(item.quantity) + 1);
+		}
 	}
 
 	function decrement(item: CartItem) {
@@ -120,7 +131,7 @@
 								<div class="text-[11px] font-mono text-muted-foreground flex items-center gap-1.5 mt-0.5">
 									<span>{item.sku_code}</span>
 									<span>•</span>
-									<span>Stock: {item.stock.toFixed(3)}</span>
+									<span>Stock: {Number(item.stock)}</span>
 								</div>
 							</td>
 
@@ -129,34 +140,43 @@
 								${item.price.toFixed(2)}
 							</td>
 
-							<!-- Quantity Input (Fractional Supported) -->
+							<!-- Quantity Input (Integer >= 1, <= stock) -->
 							<td class="px-2 py-3">
-								<div class="flex items-center justify-center gap-1">
-									<button
-										type="button"
-										disabled={item.quantity <= 1}
-										onclick={() => decrement(item)}
-										class="h-7 w-7 rounded-md border border-input bg-background text-muted-foreground hover:text-foreground hover:bg-accent flex items-center justify-center transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-										aria-label="Disminuir cantidad"
-									>
-										<Minus class="h-3 w-3" strokeWidth={2} />
-									</button>
-									<input
-										type="number"
-										step="1"
-										min="1"
-										value={item.quantity}
-										onchange={(e) => handleQuantityChange(item.id, parseInt((e.target as HTMLInputElement).value, 10))}
-										class="w-14 h-7 rounded-md border border-input bg-background px-1 text-center font-mono text-xs text-foreground focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none tabular-nums"
-									/>
-									<button
-										type="button"
-										onclick={() => increment(item)}
-										class="h-7 w-7 rounded-md border border-input bg-background text-muted-foreground hover:text-foreground hover:bg-accent flex items-center justify-center transition-colors cursor-pointer"
-										aria-label="Aumentar cantidad"
-									>
-										<Plus class="h-3 w-3" strokeWidth={2} />
-									</button>
+								<div class="flex flex-col items-center gap-1">
+									<div class="flex items-center justify-center gap-1">
+										<button
+											type="button"
+											disabled={item.quantity <= 1}
+											onclick={() => decrement(item)}
+											class="h-7 w-7 rounded-md border border-input bg-background text-muted-foreground hover:text-foreground hover:bg-accent flex items-center justify-center transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+											aria-label="Disminuir cantidad"
+										>
+											<Minus class="h-3 w-3" strokeWidth={2} />
+										</button>
+										<input
+											type="number"
+											step="1"
+											min="1"
+											max={item.stock}
+											value={item.quantity}
+											onchange={(e) => handleQuantityChange(item.id, parseInt((e.target as HTMLInputElement).value, 10))}
+											class="w-14 h-7 rounded-md border border-input bg-background px-1 text-center font-mono text-xs text-foreground focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none tabular-nums"
+										/>
+										<button
+											type="button"
+											disabled={item.quantity >= item.stock}
+											onclick={() => increment(item)}
+											class="h-7 w-7 rounded-md border border-input bg-background text-muted-foreground hover:text-foreground hover:bg-accent flex items-center justify-center transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+											aria-label="Aumentar cantidad"
+										>
+											<Plus class="h-3 w-3" strokeWidth={2} />
+										</button>
+									</div>
+									{#if item.quantity >= item.stock}
+										<span class="text-[10px] text-amber-600 dark:text-amber-400 font-medium tracking-tight">
+											Máx. disponible
+										</span>
+									{/if}
 								</div>
 							</td>
 

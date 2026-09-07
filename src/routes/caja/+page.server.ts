@@ -102,6 +102,29 @@ export const actions: Actions = {
 			}
 		}
 
+		// Validación preventiva de existencias contra stock actual en catálogo
+		const productIds = parsedItems.map((item) => item.product_id);
+		const { data: dbProducts } = await locals.supabase
+			.from('products')
+			.select('id, name, stock')
+			.in('id', productIds)
+			.eq('is_active', true);
+
+		if (dbProducts && Array.isArray(dbProducts) && dbProducts.length > 0) {
+			const stockMap = new Map(
+				dbProducts.map((p: any) => [p.id, { name: p.name, stock: Number(p.stock) }])
+			);
+			for (const item of parsedItems) {
+				const prodInfo = stockMap.get(item.product_id);
+				if (prodInfo && item.quantity > prodInfo.stock) {
+					return fail(400, {
+						error: `Stock insuficiente para "${prodInfo.name}". Disponible: ${prodInfo.stock}, Solicitado: ${item.quantity}.`,
+						idempotencyKey
+					});
+				}
+			}
+		}
+
 		// Prepare strictly sanitized payload for process_stock_outlet RPC
 		// (Notice: client unit prices are completely ignored; DB price is authoritative)
 		const rpcItems = parsedItems.map((item) => ({

@@ -62,19 +62,36 @@
 	}
 
 	function addToCart(product: any, qtyToAdd: number = 1) {
+		if (product.stock <= 0) {
+			showNotification(
+				"error",
+				`"${product.name}" está agotado (stock 0).`,
+			);
+			return;
+		}
+
 		const existingIndex = cart.findIndex((item) => item.id === product.id);
+		const maxStock = Math.floor(product.stock);
+
 		if (existingIndex >= 0) {
+			const currentQty = cart[existingIndex].quantity;
+			if (currentQty >= maxStock) {
+				showNotification(
+					"error",
+					`No es posible agregar más unidades de "${product.name}". Stock máximo disponible alcanzado (${maxStock}).`,
+				);
+				return;
+			}
+			const newQty = Math.min(maxStock, currentQty + qtyToAdd);
 			const updated = [...cart];
-			updated[existingIndex].quantity =
-				Math.round(
-					(updated[existingIndex].quantity + qtyToAdd) * 1000,
-				) / 1000;
+			updated[existingIndex].quantity = newQty;
 			cart = updated;
 			showNotification(
 				"info",
-				`+${qtyToAdd} "${product.name}" agregado al carrito.`,
+				`+${newQty - currentQty} "${product.name}" agregado al carrito.`,
 			);
 		} else {
+			const initialQty = Math.min(maxStock, Math.max(1, qtyToAdd));
 			cart = [
 				...cart,
 				{
@@ -83,7 +100,7 @@
 					name: product.name,
 					price: product.price,
 					stock: product.stock,
-					quantity: qtyToAdd,
+					quantity: initialQty,
 					image_url: product.image_url,
 				},
 			];
@@ -101,6 +118,13 @@
 		);
 
 		if (matchedProduct) {
+			if (matchedProduct.stock <= 0) {
+				showNotification(
+					"error",
+					`SKU "${code}" (${matchedProduct.name}) está agotado (stock 0).`,
+				);
+				return;
+			}
 			addToCart(matchedProduct, 1);
 		} else {
 			showNotification(
@@ -300,10 +324,13 @@
 					class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 overflow-y-auto pr-1"
 				>
 					{#each filteredProducts as product (product.id)}
+						{@const isOutOfStock = product.stock <= 0}
+						{@const isLowStock = product.stock > 0 && product.stock <= product.min_stock}
 						<button
 							type="button"
+							disabled={isOutOfStock}
 							onclick={() => addToCart(product, 1)}
-							class="flex items-center gap-3 p-2.5 rounded-md border border-border bg-card hover:bg-accent hover:border-slate-400 dark:hover:border-slate-700 transition-all text-left group shadow-xs cursor-pointer"
+							class="flex items-center gap-3 p-2.5 rounded-md border border-border bg-card hover:bg-accent hover:border-slate-400 dark:hover:border-slate-700 transition-all text-left group shadow-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-border disabled:hover:bg-card"
 						>
 							<div
 								class="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground border border-border group-hover:text-foreground overflow-hidden"
@@ -322,18 +349,27 @@
 								{/if}
 							</div>
 							<div class="flex-1 min-w-0">
-								<div
-									class="font-medium text-sm text-foreground truncate group-hover:text-primary transition-colors"
-								>
-									{product.name}
+								<div class="flex items-center justify-between gap-1">
+									<span class="font-medium text-sm text-foreground truncate group-hover:text-primary transition-colors">
+										{product.name}
+									</span>
+									{#if isOutOfStock}
+										<span class="inline-flex items-center px-1.5 py-0.2 rounded text-[10px] font-semibold bg-red-100 text-red-700 dark:bg-red-950/60 dark:text-red-300">
+											Agotado
+										</span>
+									{:else if isLowStock}
+										<span class="inline-flex items-center px-1.5 py-0.2 rounded text-[10px] font-semibold bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300">
+											Bajo stock
+										</span>
+									{/if}
 								</div>
 								<div
 									class="flex items-center justify-between text-xs mt-1"
 								>
-									<span
-										class="font-mono text-[11px] text-muted-foreground"
-										>{product.sku_code}</span
-									>
+									<div class="flex items-center gap-1.5 min-w-0">
+										<span class="font-mono text-[11px] text-muted-foreground">{product.sku_code}</span>
+										<span class="text-[11px] text-muted-foreground">• Stock: {Number(product.stock)}</span>
+									</div>
 									<span
 										class="font-mono font-semibold text-foreground tabular-nums"
 										>${product.price.toFixed(2)}</span
