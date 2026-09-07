@@ -94,12 +94,28 @@
     - `tests/e2e/pos_critical_flow.spec.ts`
     - `Deuda_Tecnica.md`
 
+- [x] ✅ ~~**ISSUE-010: Hotfix de Semántica de Calendario y Corrección de Filtros de Fechas en Historial**~~
+  - **Módulo:** Ventas & Logística / Admin UI (`/admin/historial`)
+  - **Descripción:** Corrección de error 500 y de la semántica de límites temporales en el filtrado de salidas de stock por fecha.
+    - **Causa Raíz:** `LocalQueryBuilder` no soportaba los métodos `.gte()`/`.lte()`; el servidor de Historial invocaba esos métodos y producía HTTP 500 (`TypeError: query.gte is not a function`). Además, se corrigió la semántica de límites de fecha para trabajar con días calendario completos mediante intervalo semiabierto `[inicio del día, inicio del día siguiente)` (`[startBoundMs, endBoundMs)`), resolviendo el desfase de zona horaria (UTC vs. tiempo local de negocio) que provocaba que ventas nocturnas quedaran fuera de su día o fueran absorbidas por el filtro `Hoy`.
+    - **Corrección:** Implementación de intervalo semiabierto `[inicio del día, inicio del día siguiente)`, normalización temporal defensiva con `getOutletLocalTimeMs` agnóstica a tipos `Date` e ISO con o sin zona horaria, y verificación condicional previa antes de invocar métodos no soportados en el query builder.
+  - **Archivos Autorizados:**
+    - `src/routes/admin/historial/+page.server.ts`
+    - `src/routes/admin/historial/+page.svelte`
+    - `tests/ui/returns_audit.test.ts`
+    - `deuda_tecnica.md`
+  - **Evidencia de Resolución:**
+    - Commit: `57295357cb4da010e28742fd0a6ecb87938bca5b` (`fix: corregir filtros de fechas en historial`)
+    - Pruebas automatizadas: `npm run test` (114 passed, 1 skipped, 0 failed).
+    - Validación manual en Chromium real contra PostgreSQL local: HTTP 200 sin filtros (22 ventas, $325.00), Hoy (0 ventas, sin ventas arrastradas del día anterior), 06/09 → 06/09 (15 ventas incluyendo nocturnas folios 21 y 22, $225.00), 06/09 → 07/09 (15 ventas) y 02/09 → 02/09 (7 ventas).
+
 ---
 
 ## Sprint History
 
 | Sprint | Issue | Estado | Cambios Clave | Skill Actualizado |
 | :--- | :--- | :--- | :--- | :--- |
+| Post-Beta | ISSUE-010 | ✅ Resuelto | Hotfix de filtros de fechas en Historial (/admin/historial): Causa raíz: LocalQueryBuilder no soportaba .gte()/.lte(); el servidor de Historial invocaba esos métodos y producía HTTP 500; además se corrigió la semántica de límites de fecha para trabajar con días calendario completos mediante intervalo semiabierto [inicio del día, inicio del día siguiente). Evidencia de resolución: commit 57295357cb4da010e28742fd0a6ecb87938bca5b, npm run test: 114 passed, 1 skipped, 0 failed, y validación manual en Chromium contra PostgreSQL local (sin filtros: HTTP 200, 22 ventas; Hoy: 0 ventas sin arrastrar día anterior; 06/09 -> 06/09: 15 ventas incluyendo nocturnas folios 21 y 22; 06/09 -> 07/09: 15 ventas; 02/09 -> 02/09: 7 ventas). | N/A |
 | 21 | BETA-PREP-AUDIT | ~~⏳ Pendiente de revisión~~ / ✅ Aprobado | Auditoría integral del sistema contra SRS v8.0 / v8.1 para entrega Beta: resolución de discrepancia de migraciones en documentación de despliegue local (incorporación de migración incremental 20260906000000_enforce_integer_quantities_in_pos.sql en README.md y ARQUITECTURA.md), alineación de métricas de pruebas a 106 passed en toda la documentación, corrección de accesibilidad (aria-label) en modal de detalle de historial, elaboración de la Guía de Prueba Manual para evaluación Beta con credenciales canónicas y preservación estricta de invariantes RLS, RPC, Soft Delete y auditoría. Cierre administrativo: validación técnica aprobada (106 passed, 1 skipped, 0 failed; build exit code 0 con 2 warnings Svelte 5 no bloqueantes documentados en login y productos; git diff --check exit 0; commit 88a84d0). | N/A |
 | 20 | MEJORAS-POS-STOCK-FOLIO | ✅ Aprobado | Control preventivo de existencias en mostrador /caja (visualización de stock disponible en catálogo rápido, bloqueo de adición y etiqueta 'Agotado' con stock <= 0, advertencia de bajo stock si stock <= min_stock, cantidad mínima de 1 y tope al stock disponible en carrito CartTable con botón '+' deshabilitado al alcanzar el límite, y validación preventiva en Server Action checkout preservando carrito e idempotency_key ante rechazo) y exposición del folio numérico oficial de salida (stock_outlets.folio) en historial de ventas y modales de detalle y cancelación sin alterar contratos UUID ni la autoridad transaccional de la RPC process_stock_outlet. | N/A |
 | 19 | MEJORAS-POS | ✅ Aprobado | Implementación de cuatro mejoras operativas del POS: 1) Enforce de cantidades enteras >= 1 en Caja en UI (botón '-' deshabilitado en 1, step/min=1), Server Action (rechazo 400 de negativos, cero, null y fracciones) y DB (migración incremental 20260906000000_enforce_integer_quantities_in_pos.sql en RPC process_stock_outlet); 2) Filtros temporales en Historial de Ventas (fecha única, rango desde/hasta, preset 'Hoy', cálculo de métricas de ventas válidas e ingresos de ventas válidas excluyendo canceladas, sin exponer costos); 3) Exportación de catálogo de productos activos a CSV compatible con Excel (GET /admin/productos/export con UTF-8 BOM, RBAC solo Admin, sin exponer product_costs); 4) Protección de ProductModal ante pérdida accidental de cambios pendientes con diálogo de confirmación ante Escape o clic en backdrop. Suite de pruebas pasando al 100%. | N/A |
