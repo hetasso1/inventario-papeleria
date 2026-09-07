@@ -7,7 +7,7 @@
 [![Vitest](https://img.shields.io/badge/Vitest-106%20passed%2C%201%20skipped-green?style=flat-square&logo=vitest)](https://vitest.dev/)
 [![Playwright](https://img.shields.io/badge/Playwright-1%20passed%20(E2E)-45ba4b?style=flat-square&logo=playwright)](https://playwright.dev/)
 
-Sistema web integral de **Gestión de Inventario y Punto de Venta (POS)** optimizado para papelerías y comercios minoristas. Diseñado para operar con alta velocidad en mostrador mediante escáneres de código de barras USB, ventas fraccionadas, aislamiento confidencial de costos de adquisición y auditoría inmutable en PostgreSQL 15 local.
+Sistema web integral de **Gestión de Inventario y Punto de Venta (POS)** optimizado para papelerías y comercios minoristas. Diseñado para operar con alta velocidad en mostrador mediante escáneres de código de barras USB, control preventivo de existencias con cantidades enteras obligatorias, aislamiento confidencial de costos de adquisición y auditoría inmutable en PostgreSQL 15 local.
 
 ---
 
@@ -15,7 +15,7 @@ Sistema web integral de **Gestión de Inventario y Punto de Venta (POS)** optimi
 
 - **Fugas de Información Financiera:** Impide que los cajeros visualicen costos de compra y márgenes de ganancia mediante políticas estrictas de *Row Level Security* (RLS).
 - **Desfase en Inventario:** Previene existencias negativas y ventas concurrentes corruptas a través de transacciones atómicas en base de datos.
-- **Lentitud en Mostrador:** Captura ráfagas de lectores de código de barras USB sin importar el foco del cursor y soporta artículos fraccionados (por metro o decimales).
+- **Lentitud en Mostrador:** Captura ráfagas de lectores de código de barras USB sin importar el foco del cursor y previene quiebres de inventario mediante control preventivo de stock.
 - **Pérdida de Trazabilidad:** Prohíbe el borrado físico de registros (*Soft Delete* estricto) y audita de forma automática cada venta, devolución o ajuste manual.
 - **Dependencia de Red Externa:** Funciona de forma 100% autónoma y offline sobre PostgreSQL 15 local sin requerir servicios en la nube para su operación diaria.
 
@@ -25,7 +25,7 @@ Sistema web integral de **Gestión de Inventario y Punto de Venta (POS)** optimi
 
 - 🛒 **Terminal de Punto de Venta (POS):** Carrito reactivo, cálculo de totales en tiempo real y cobro en una sola transacción atómica.
 - ⚡ **Captura Global de Escáner USB:** Intercepción de ráfagas de teclado (<100ms) en la ventana del navegador con resiliencia de foco en `<input>` y `<button>`.
-- 📐 **Soporte de Ventas Fraccionadas:** Manejo de cantidades con precisión de 3 decimales (`NUMERIC(10,3)`).
+- 📐 **Precisión en Almacén y Control de Ventas:** Manejo de existencias con precisión decimal en inventario base (`NUMERIC(10,3)`) y cobro en mostrador estandarizado a cantidades enteras obligatorias $\ge 1$.
 - 🔒 **Aislamiento de Costos por RLS:** Acceso exclusivo a costos de adquisición para el rol Administrador.
 - 🛡️ **Bajas Lógicas Obligatorias (Soft Delete):** Desactivación de artículos (`is_active = false`) sin romper llaves foráneas históricas.
 - 🔄 **Cobro y Cancelación Atómica vía RPC:** Procedimientos almacenados PL/pgSQL que garantizan consistencia y reposición automática de existencias en devoluciones.
