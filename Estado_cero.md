@@ -13,7 +13,8 @@
 - **Seguridad:** PostgreSQL RLS activo en las 5 tablas sobre rol no-superuser `authenticated` con contexto de claims inyectado vía `SET LOCAL`
 - **Lógica Transaccional:** RPCs PostgreSQL (`upsert_product_with_cost`, `process_stock_outlet`, `cancel_stock_outlet`) con control de concurrencia e idempotencia
 - **Auditoría:** Triggers automáticos inmutables (`trg_audit_product_stock`) + bitácora forense de almacén `inventory_logs`
-- **Tests Unitarios e Integración:** Vitest (`npm run test`: 92 passed, 1 skipped, 0 failed)
+- **Operación POS (Sprints 19-20):** Cantidades enteras obligatorias $\ge 1$, control preventivo de existencias en mostrador (bloqueo de agotados y tope máximo disponible en carrito), folio oficial numérico de salida (`stock_outlets.folio`), filtros temporales con métricas en historial, exportación de catálogo a CSV compatible con Excel y protección de formularios ante pérdida de datos.
+- **Tests Unitarios e Integración:** Vitest (`npm run test`: 106 passed, 1 skipped, 0 failed)
 - **E2E:** Playwright (`npx playwright test`: 1 passed, 0 failed en Chromium contra servidor compilado con `@sveltejs/adapter-node`)
 
 ## Trazabilidad Histórica de la Transición (v8.0 → v8.1)

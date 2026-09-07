@@ -572,6 +572,7 @@
 						<button
 							type="button"
 							onclick={closeDetailModal}
+							aria-label="Cerrar detalle"
 							class="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors cursor-pointer"
 						>
 							<svg

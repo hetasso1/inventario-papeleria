@@ -193,7 +193,7 @@ La presente arquitectura v8.1 ha sido demostrada empíricamente y validada en su
 * **Pruebas Automatizadas Unitarias y de Integración (`npm run test`):**
   ```text
   Test Files  10 passed | 1 skipped (11)
-  Tests       92 passed | 1 skipped (93)
+  Tests       106 passed | 1 skipped (107)
   ```
   *(1 prueba skipped correspondiente al wrapper de Playwright dentro de Vitest).*
 * **Prueba End-to-End en Navegador Real (`npx playwright test`):**

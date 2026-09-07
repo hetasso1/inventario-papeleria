@@ -71,7 +71,7 @@ El sistema implementa una arquitectura en capas basada en **SvelteKit 2**, con r
 | **PostgreSQL 15 Local** | `15-alpine` | Motor relacional alojado en contenedor Docker local (`pg_integration_test`, puerto 5433, base `inventario_dev`). Persistencia, RLS, triggers y transacciones atómicas. |
 | **Autenticación Local** | PBKDF2 + HMAC | Autenticación local mediante contraseñas hasheadas en `auth.users` y cookies de sesión HTTP-only firmadas con HMAC-SHA256 (`app_session`). |
 | **Adapter Node** | `@sveltejs/adapter-node ^5.5.7` | Adaptador de compilación para servidor Node.js standalone ejecutable (`/build`). |
-| **Vitest** | `^4.1.8` | Runner de pruebas unitarias, de integración DB y contratos de servidor (92 passed, 1 skipped). |
+| **Vitest** | `^4.1.8` | Runner de pruebas unitarias, de integración DB y contratos de servidor (106 passed, 1 skipped). |
 | **Playwright** | `^1.62.1` | Framework de pruebas End-to-End en navegador Chromium real contra el servidor compilado (1 passed). |
 | **Iconografía UI** | `lucide-svelte ^1.0.1` | Biblioteca de iconos vectoriales nativa para Svelte 5. |
 | **Utilidades de Estilo** | `clsx ^2.1.1` + `tailwind-merge ^3.6.0` | Función `cn` en `src/lib/utils.ts` para composición condicional de clases CSS. |
@@ -554,7 +554,8 @@ inventario_papeleria/
 ├── supabase/
 │   └── migrations/                        # Migraciones SQL declarativas
 │       ├── 20260829000000_init_v8.sql     # Esquema DDL inicial, RLS, RPCs y triggers
-│       └── 20260902000000_fix_stock_outlet_items_rls.sql # RLS en stock_outlet_items
+│       ├── 20260902000000_fix_stock_outlet_items_rls.sql # RLS en stock_outlet_items
+│       └── 20260906000000_enforce_integer_quantities_in_pos.sql # Enforce cantidades enteras en RPC
 ├── tests/
 │   ├── auth/                              # Pruebas de guardias y RBAC
 │   ├── cloud/                             # Pruebas de compatibilidad con Supabase Cloud

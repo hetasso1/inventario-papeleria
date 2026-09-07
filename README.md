@@ -4,7 +4,7 @@
 [![Svelte](https://img.shields.io/badge/Svelte-5.56-red?style=flat-square&logo=svelte)](https://svelte.dev/)
 [![TailwindCSS](https://img.shields.io/badge/TailwindCSS-4.3-38B2AC?style=flat-square&logo=tailwind-css)](https://tailwindcss.com/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15%20Local%20(Docker)-336791?style=flat-square&logo=postgresql)](https://www.postgresql.org/)
-[![Vitest](https://img.shields.io/badge/Vitest-92%20passed%2C%201%20skipped-green?style=flat-square&logo=vitest)](https://vitest.dev/)
+[![Vitest](https://img.shields.io/badge/Vitest-106%20passed%2C%201%20skipped-green?style=flat-square&logo=vitest)](https://vitest.dev/)
 [![Playwright](https://img.shields.io/badge/Playwright-1%20passed%20(E2E)-45ba4b?style=flat-square&logo=playwright)](https://playwright.dev/)
 
 Sistema web integral de **Gestión de Inventario y Punto de Venta (POS)** optimizado para papelerías y comercios minoristas. Diseñado para operar con alta velocidad en mostrador mediante escáneres de código de barras USB, ventas fraccionadas, aislamiento confidencial de costos de adquisición y auditoría inmutable en PostgreSQL 15 local.
@@ -30,6 +30,11 @@ Sistema web integral de **Gestión de Inventario y Punto de Venta (POS)** optimi
 - 🛡️ **Bajas Lógicas Obligatorias (Soft Delete):** Desactivación de artículos (`is_active = false`) sin romper llaves foráneas históricas.
 - 🔄 **Cobro y Cancelación Atómica vía RPC:** Procedimientos almacenados PL/pgSQL que garantizan consistencia y reposición automática de existencias en devoluciones.
 - 📋 **Bitácora Inmutable de Auditoría:** Registro automático de todos los movimientos de almacén (`inventory_logs`).
+- 🔢 **Control Preventivo de Existencias y Cantidades:** Cantidades enteras $\ge 1$ obligatorias en carrito y RPC; tope de carrito al stock disponible en mostrador ("Máx. disponible"), bloqueo de productos agotados ("Agotado") y alertas de "Bajo stock".
+- 🏷️ **Folio Numérico Oficial:** Generación y exposición de `stock_outlets.folio` en historial, filtros temporales y detalle de venta sin alterar los contratos UUID existentes.
+- 📊 **Filtros Temporales y Métricas en Historial:** Consulta por fecha única, rango desde/hasta y preset 'Hoy' con ingresos reales consolidados excluyendo ventas canceladas.
+- 📥 **Exportación a CSV:** Descarga del catálogo de productos activos con formato UTF-8 BOM compatible con Microsoft Excel.
+- 🛡️ **Protección de Formularios:** Diálogo de confirmación ante cierre accidental de modal de productos con cambios pendientes sin guardar.
 - 🎨 **Sistema de Diseño UI Desacoplado:** Componentes reutilizables (`Badge`, `Button`, `Card`, `Input`), utilidad de clases `cn` (`clsx` + `tailwind-merge`), tokens semánticos en `layout.css` e iconografía vectorial nativa para Svelte 5 con `lucide-svelte`.
 - 📱 **Shell de Navegación Responsivo:** Barra lateral fija para escritorio, cajón colapsable (*drawer*) para dispositivos móviles y migas de pan semánticas (`<span>`).
 
@@ -102,7 +107,7 @@ npm run build
 npx playwright test
 ```
 
-- **Vitest:** `92 passed | 1 skipped | 0 failed` (93 tests totales).
+- **Vitest:** `106 passed | 1 skipped | 0 failed` (107 tests totales).
 - **PostgreSQL 15 Local (Docker):** 18 tests de integración DB (`tests/db/*.test.ts`) pasando al 100%.
 - **Cloud Compatibility:** `7 passed | 0 failed | 0 skipped` (`tests/cloud/supabase_cloud.test.ts`).
 - **Playwright E2E:** `1 passed, 0 failed` (Flujo vertical completo: Login Cajero → RBAC → Scanner USB → Cobro RPC → Login Admin → Devolución RPC → Auditoría UI).
@@ -160,12 +165,14 @@ docker exec -i pg_integration_test psql -U postgres -d inventario_dev -c "CREATE
 ```powershell
 Get-Content supabase/migrations/20260829000000_init_v8.sql -Raw | docker exec -i pg_integration_test psql -U postgres -d inventario_dev
 Get-Content supabase/migrations/20260902000000_fix_stock_outlet_items_rls.sql -Raw | docker exec -i pg_integration_test psql -U postgres -d inventario_dev
+Get-Content supabase/migrations/20260906000000_enforce_integer_quantities_in_pos.sql -Raw | docker exec -i pg_integration_test psql -U postgres -d inventario_dev
 ```
 
 *En Linux / macOS / Bash:*
 ```bash
 docker exec -i pg_integration_test psql -U postgres -d inventario_dev < supabase/migrations/20260829000000_init_v8.sql
 docker exec -i pg_integration_test psql -U postgres -d inventario_dev < supabase/migrations/20260902000000_fix_stock_outlet_items_rls.sql
+docker exec -i pg_integration_test psql -U postgres -d inventario_dev < supabase/migrations/20260906000000_enforce_integer_quantities_in_pos.sql
 ```
 
 **D. Otorgar permisos finales y registrar usuarios canónicos:**
@@ -210,6 +217,46 @@ Abrir en el navegador: [http://localhost:5173/login](http://localhost:5173/login
 npm run build
 node build
 ```
+
+---
+
+### 8.8. Guía de Prueba Manual para Evaluación de Versión Beta
+
+Para validar el funcionamiento del sistema en un entorno real o local:
+
+#### Flujo de Mostrador / Cajero
+1. Acceder a `http://localhost:5173/login`.
+2. Iniciar sesión con:
+   - **Correo:** `cajero@papeleria.com`
+   - **Contraseña:** `cajero111`
+3. Comprobar que el sistema redirige automáticamente a `/caja`.
+4. Intentar acceder a `http://localhost:5173/admin/productos` y confirmar la guardia RBAC: el servidor responde con redirección HTTP 303 de vuelta a `/caja`.
+5. En `/caja`:
+   - El catálogo rápido muestra el stock disponible de cada producto.
+   - Productos con existencias $\le$ stock mínimo muestran la insignia **Bajo stock**.
+   - Productos con existencias $\le 0$ muestran la etiqueta **Agotado** y su botón de adición permanece inhabilitado.
+6. Agregar productos al carrito:
+   - Comprobar que no es posible seleccionar cantidades menores a 1 ni superiores a las existencias disponibles.
+   - El botón `+` se desactiva al alcanzar el tope de existencias disponibles y muestra el aviso `Máx. disponible`.
+7. Presionar **Cobrar Venta**:
+   - Se procesa la venta atómica e idempotente.
+   - Se despliega el banner de confirmación con el `ID Salida:` y el total pagado.
+
+#### Flujo de Administración / Auditoría
+1. Cerrar sesión mediante el botón en la barra lateral e ingresar con:
+   - **Correo:** `admin@papeleria.com`
+   - **Contraseña:** `admin777`
+2. En **`/admin/productos`**:
+   - Verificar la visualización de la columna confidencial de **Costo (Admin)** protegida por RLS.
+   - Probar la descarga de catálogo presionando **Exportar CSV** y comprobar su apertura limpia en Excel.
+   - Crear o editar un producto; comprobar que al intentar cerrar el modal con cambios sin guardar (vía `Escape` o clic en backdrop) se despliega el diálogo de advertencia.
+3. En **`/admin/historial`**:
+   - Constatar la presencia de la columna **# Folio** numérico oficial.
+   - Filtrar por fecha única, rango o el preset **Hoy** y comprobar el cálculo de métricas (ventas válidas, canceladas e ingresos totales).
+   - Abrir el modal de detalle de cualquier venta para consultar el desglose de artículos y su folio oficial.
+   - Efectuar la anulación justificada de una venta; comprobar que se restaura el inventario atómicamente.
+4. En **`/admin/auditoria`**:
+   - Verificar el registro inmutable de movimientos (`VENTA`, `DEVOLUCION`, `REABASTECIMIENTO`, `AJUSTE_MANUAL`) con su usuario responsable y marca de tiempo.
 
 ---
 
