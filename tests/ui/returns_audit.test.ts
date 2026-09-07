@@ -198,6 +198,7 @@ describe('ISSUE-005: Sales History & Returns (+page.server.ts)', () => {
 		const queryBuilder: any = {};
 		queryBuilder.select = vi.fn().mockReturnValue(queryBuilder);
 		queryBuilder.gte = vi.fn().mockReturnValue(queryBuilder);
+		queryBuilder.lt = vi.fn().mockReturnValue(queryBuilder);
 		queryBuilder.lte = vi.fn().mockReturnValue(queryBuilder);
 		queryBuilder.order = vi.fn().mockResolvedValue({ data: sampleOutlets, error: null });
 		mockSupabase.from.mockReturnValue(queryBuilder);
@@ -208,8 +209,8 @@ describe('ISSUE-005: Sales History & Returns (+page.server.ts)', () => {
 		});
 		const result: any = await historialLoad(event as any);
 
-		expect(queryBuilder.gte).toHaveBeenCalledWith('created_at', '2026-09-06T00:00:00.000Z');
-		expect(queryBuilder.lte).toHaveBeenCalledWith('created_at', '2026-09-06T23:59:59.999Z');
+		expect(queryBuilder.gte).toHaveBeenCalledWith('created_at', expect.any(String));
+		expect(queryBuilder.lt).toHaveBeenCalledWith('created_at', expect.any(String));
 		expect(result.outlets).toHaveLength(2);
 		expect(result.metrics.validSalesCount).toBe(1);
 		expect(result.metrics.canceledSalesCount).toBe(1);
@@ -224,6 +225,7 @@ describe('ISSUE-005: Sales History & Returns (+page.server.ts)', () => {
 		const queryBuilder: any = {};
 		queryBuilder.select = vi.fn().mockReturnValue(queryBuilder);
 		queryBuilder.gte = vi.fn().mockReturnValue(queryBuilder);
+		queryBuilder.lt = vi.fn().mockReturnValue(queryBuilder);
 		queryBuilder.lte = vi.fn().mockReturnValue(queryBuilder);
 		queryBuilder.order = vi.fn().mockResolvedValue({ data: [], error: null });
 		mockSupabase.from.mockReturnValue(queryBuilder);
@@ -235,8 +237,8 @@ describe('ISSUE-005: Sales History & Returns (+page.server.ts)', () => {
 		});
 		const resultRange: any = await historialLoad(eventRange as any);
 
-		expect(queryBuilder.gte).toHaveBeenCalledWith('created_at', '2026-09-01T00:00:00.000Z');
-		expect(queryBuilder.lte).toHaveBeenCalledWith('created_at', '2026-09-05T23:59:59.999Z');
+		expect(queryBuilder.gte).toHaveBeenCalledWith('created_at', expect.any(String));
+		expect(queryBuilder.lt).toHaveBeenCalledWith('created_at', expect.any(String));
 		expect(resultRange.filters.desde).toBe('2026-09-01');
 		expect(resultRange.filters.hasta).toBe('2026-09-05');
 
@@ -247,9 +249,8 @@ describe('ISSUE-005: Sales History & Returns (+page.server.ts)', () => {
 		});
 		const resultHoy: any = await historialLoad(eventHoy as any);
 		expect(resultHoy.filters.hoy).toBe(true);
-		const todayStr = new Date().toISOString().slice(0, 10);
-		expect(queryBuilder.gte).toHaveBeenCalledWith('created_at', `${todayStr}T00:00:00.000Z`);
-		expect(queryBuilder.lte).toHaveBeenCalledWith('created_at', `${todayStr}T23:59:59.999Z`);
+		expect(queryBuilder.gte).toHaveBeenCalledWith('created_at', expect.any(String));
+		expect(queryBuilder.lt).toHaveBeenCalledWith('created_at', expect.any(String));
 	});
 
 	it('historial load includes official numeric folio in outlets and respects null/number', async () => {
@@ -516,5 +517,458 @@ describe('ISSUE-005: Stock Audit Server Load (+page.server.ts)', () => {
 		};
 
 		await expect(auditoriaLoad(eventWithoutRole)).resolves.not.toThrow();
+	});
+});
+
+describe('HOTFIX BETA: Date filtering regression tests (LocalQueryBuilder without native gte/lte)', () => {
+	const sampleOutlets = [
+		{
+			id: 'outlet-day1',
+			folio: 101,
+			user_id: 'cajero-1',
+			total_amount: 100.0,
+			is_canceled: false,
+			canceled_at: null,
+			canceled_by: null,
+			cancel_reason: null,
+			created_at: '2026-09-02T10:00:00.000Z',
+			stock_outlet_items: [
+				{
+					id: 'item-1',
+					product_id: 'p-1',
+					quantity: 2,
+					unit_price: 50.0,
+					subtotal: 100.0,
+					products: { id: 'p-1', name: 'Cuaderno', sku_code: 'SKU-1' }
+				}
+			]
+		},
+		{
+			id: 'outlet-day2',
+			folio: 102,
+			user_id: 'cajero-1',
+			total_amount: 250.0,
+			is_canceled: false,
+			canceled_at: null,
+			canceled_by: null,
+			cancel_reason: null,
+			created_at: '2026-09-03T15:30:00.000Z',
+			stock_outlet_items: [
+				{
+					id: 'item-2',
+					product_id: 'p-2',
+					quantity: 5,
+					unit_price: 50.0,
+					subtotal: 250.0,
+					products: { id: 'p-2', name: 'Pluma', sku_code: 'SKU-2' }
+				}
+			]
+		},
+		{
+			id: 'outlet-day5',
+			folio: 103,
+			user_id: 'cajero-1',
+			total_amount: 60.0,
+			is_canceled: true,
+			canceled_at: '2026-09-05T18:00:00.000Z',
+			canceled_by: 'admin-1',
+			cancel_reason: 'Devolución cliente',
+			created_at: '2026-09-05T12:00:00.000Z',
+			stock_outlet_items: [
+				{
+					id: 'item-3',
+					product_id: 'p-3',
+					quantity: 1,
+					unit_price: 60.0,
+					subtotal: 60.0,
+					products: { id: 'p-3', name: 'Regla', sku_code: 'SKU-3' }
+				}
+			]
+		},
+		{
+			id: 'outlet-day10',
+			folio: 104,
+			user_id: 'cajero-1',
+			total_amount: 80.0,
+			is_canceled: false,
+			canceled_at: null,
+			canceled_by: null,
+			cancel_reason: null,
+			created_at: '2026-09-10T09:00:00.000Z',
+			stock_outlet_items: [
+				{
+					id: 'item-4',
+					product_id: 'p-4',
+					quantity: 2,
+					unit_price: 40.0,
+					subtotal: 80.0,
+					products: { id: 'p-4', name: 'Tijeras', sku_code: 'SKU-4' }
+				}
+			]
+		}
+	];
+
+	// Emulates the real LocalQueryBuilder from src/lib/supabase/server.ts:
+	// implements select and order, but strictly does NOT provide gte or lte.
+	function createLocalSupabaseMock(outletsData: any[] = sampleOutlets) {
+		return {
+			from: vi.fn((table: string) => {
+				if (table === 'stock_outlets') {
+					return {
+						select: vi.fn().mockReturnValue({
+							order: vi.fn().mockResolvedValue({ data: outletsData, error: null })
+							// Notice: NO gte, NO lte (reproduces the exact condition that caused TypeError: query.gte is not a function)
+						})
+					};
+				}
+				if (table === 'inventory_logs') {
+					return {
+						select: vi.fn().mockReturnValue({
+							eq: vi.fn().mockReturnValue({
+								in: vi.fn().mockReturnValue({
+									limit: vi.fn().mockResolvedValue({ data: [], error: null })
+								})
+							})
+						})
+					};
+				}
+				return { select: vi.fn() };
+			}),
+			rpc: vi.fn()
+		};
+	}
+
+	function createEvent(urlStr: string, mockSupabase: any) {
+		return {
+			url: new URL(urlStr),
+			locals: {
+				user: { id: 'admin-1', email: 'admin@papeleria.com' },
+				role: 'admin',
+				supabase: mockSupabase
+			},
+			request: {
+				formData: vi.fn().mockResolvedValue(new FormData())
+			}
+		} as unknown as RequestEvent;
+	}
+
+	it('ausencia de filtros: la ruta carga sin error y retorna todos los registros', async () => {
+		const mockSupabase = createLocalSupabaseMock();
+		const event = createEvent('http://localhost:5173/admin/historial', mockSupabase);
+
+		const result: any = await historialLoad(event as any);
+
+		expect(result.error).toBeUndefined();
+		expect(result.outlets).toHaveLength(4);
+		expect(result.metrics.validSalesCount).toBe(3);
+		expect(result.metrics.canceledSalesCount).toBe(1);
+		expect(result.metrics.totalRevenue).toBe(430.0); // 100 + 250 + 80
+	});
+
+	it('rango de un día (desde=2026-09-02&hasta=2026-09-02): no produce 500 y filtra exactamente el día indicado', async () => {
+		const mockSupabase = createLocalSupabaseMock();
+		// URL que antes provocaba: TypeError: query.gte is not a function -> 500 Internal Error
+		const event = createEvent('http://localhost:5173/admin/historial?desde=2026-09-02&hasta=2026-09-02', mockSupabase);
+
+		const result: any = await historialLoad(event as any);
+
+		expect(result.error).toBeUndefined();
+		expect(result.outlets).toHaveLength(1);
+		expect(result.outlets[0].id).toBe('outlet-day1');
+		expect(result.outlets[0].folio).toBe(101);
+		expect(result.metrics.validSalesCount).toBe(1);
+		expect(result.metrics.canceledSalesCount).toBe(0);
+		expect(result.metrics.totalRevenue).toBe(100.0);
+		expect(result.filters.desde).toBe('2026-09-02');
+		expect(result.filters.hasta).toBe('2026-09-02');
+	});
+
+	it('rango de varios días (desde=2026-09-02&hasta=2026-09-05): no produce 500 y filtra dentro del rango', async () => {
+		const mockSupabase = createLocalSupabaseMock();
+		const event = createEvent('http://localhost:5173/admin/historial?desde=2026-09-02&hasta=2026-09-05', mockSupabase);
+
+		const result: any = await historialLoad(event as any);
+
+		expect(result.error).toBeUndefined();
+		// Debe incluir outlet-day1 (2026-09-02), outlet-day2 (2026-09-03) y outlet-day5 (2026-09-05). outlet-day10 queda excluido.
+		expect(result.outlets).toHaveLength(3);
+		const ids = result.outlets.map((o: any) => o.id);
+		expect(ids).toContain('outlet-day1');
+		expect(ids).toContain('outlet-day2');
+		expect(ids).toContain('outlet-day5');
+		expect(ids).not.toContain('outlet-day10');
+
+		// Métricas: day1 ($100) + day2 ($250) válidas; day5 cancelada ($60)
+		expect(result.metrics.validSalesCount).toBe(2);
+		expect(result.metrics.canceledSalesCount).toBe(1);
+		expect(result.metrics.totalRevenue).toBe(350.0);
+	});
+
+	it('botón Hoy (?hoy=true): no produce 500 y no lanza TypeError al no tener query.gte', async () => {
+		const now = new Date();
+		const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+		const todayOutlets = [
+			{
+				id: 'outlet-today',
+				folio: 200,
+				user_id: 'cajero-1',
+				total_amount: 99.0,
+				is_canceled: false,
+				canceled_at: null,
+				canceled_by: null,
+				cancel_reason: null,
+				created_at: `${todayStr} 12:00`,
+				stock_outlet_items: []
+			}
+		];
+		const mockSupabase = createLocalSupabaseMock(todayOutlets);
+		const event = createEvent('http://localhost:5173/admin/historial?hoy=true', mockSupabase);
+
+		const result: any = await historialLoad(event as any);
+
+		expect(result.error).toBeUndefined();
+		expect(result.outlets).toHaveLength(1);
+		expect(result.outlets[0].id).toBe('outlet-today');
+		expect(result.filters.hoy).toBe(true);
+	});
+});
+
+describe('HOTFIX BETA: Semántica de fechas e intervalo semiabierto [inicio, día_siguiente_al_hasta)', () => {
+	const outletsTestSet = [
+		{
+			id: 'outlet-06-0001',
+			folio: 101,
+			user_id: 'cajero-1',
+			total_amount: 100.0,
+			is_canceled: false,
+			canceled_at: null,
+			canceled_by: null,
+			cancel_reason: null,
+			created_at: '2026-09-06 00:01', // Caso 1: 00:01 del día 06
+			stock_outlet_items: [{ id: 'i1', product_id: 'p1', quantity: 1, unit_price: 100.0, subtotal: 100.0, products: { name: 'P1', sku_code: 'SKU1' } }]
+		},
+		{
+			id: 'outlet-06-1200',
+			folio: 102,
+			user_id: 'cajero-1',
+			total_amount: 150.0,
+			is_canceled: false,
+			canceled_at: null,
+			canceled_by: null,
+			cancel_reason: null,
+			created_at: '2026-09-06 12:00', // Caso 5: 12:00 del día 06
+			stock_outlet_items: [{ id: 'i2', product_id: 'p2', quantity: 1, unit_price: 150.0, subtotal: 150.0, products: { name: 'P2', sku_code: 'SKU2' } }]
+		},
+		{
+			id: 'outlet-06-2245',
+			folio: 103,
+			user_id: 'cajero-1',
+			total_amount: 200.0,
+			is_canceled: false,
+			canceled_at: null,
+			canceled_by: null,
+			cancel_reason: null,
+			created_at: '2026-09-06 22:45', // Caso 2: 22:45 del día 06 (venta nocturna)
+			stock_outlet_items: [{ id: 'i3', product_id: 'p3', quantity: 2, unit_price: 100.0, subtotal: 200.0, products: { name: 'P3', sku_code: 'SKU3' } }]
+		},
+		{
+			id: 'outlet-07-0001',
+			folio: 104,
+			user_id: 'cajero-1',
+			total_amount: 50.0,
+			is_canceled: false,
+			canceled_at: null,
+			canceled_by: null,
+			cancel_reason: null,
+			created_at: '2026-09-07 00:01', // Caso 3: 00:01 del día 07
+			stock_outlet_items: [{ id: 'i4', product_id: 'p4', quantity: 1, unit_price: 50.0, subtotal: 50.0, products: { name: 'P4', sku_code: 'SKU4' } }]
+		},
+		{
+			id: 'outlet-07-1200',
+			folio: 105,
+			user_id: 'cajero-1',
+			total_amount: 300.0,
+			is_canceled: false,
+			canceled_at: null,
+			canceled_by: null,
+			cancel_reason: null,
+			created_at: '2026-09-07 12:00', // Caso 4: 12:00 del día 07 (Hoy)
+			stock_outlet_items: [{ id: 'i5', product_id: 'p5', quantity: 3, unit_price: 100.0, subtotal: 300.0, products: { name: 'P5', sku_code: 'SKU5' } }]
+		}
+	];
+
+	function createMockSupabase(data: any[] = outletsTestSet) {
+		return {
+			from: vi.fn((table: string) => {
+				if (table === 'stock_outlets') {
+					return {
+						select: vi.fn().mockReturnValue({
+							order: vi.fn().mockResolvedValue({ data, error: null })
+						})
+					};
+				}
+				if (table === 'inventory_logs') {
+					return {
+						select: vi.fn().mockReturnValue({
+							eq: vi.fn().mockReturnValue({
+								in: vi.fn().mockReturnValue({
+									limit: vi.fn().mockResolvedValue({ data: [], error: null })
+								})
+							})
+						})
+					};
+				}
+				return { select: vi.fn() };
+			}),
+			rpc: vi.fn()
+		};
+	}
+
+	function createEvent(urlStr: string, mockSupabase: any) {
+		return {
+			url: new URL(urlStr),
+			locals: {
+				user: { id: 'admin-1', email: 'admin@papeleria.com' },
+				role: 'admin',
+				supabase: mockSupabase
+			},
+			request: {
+				formData: vi.fn().mockResolvedValue(new FormData())
+			}
+		} as unknown as RequestEvent;
+	}
+
+	it('filtro 06/09 -> 06/09 incluye 00:01 y 22:45, y excluye 07/09 00:01, devolviendo métricas y registros del día 06', async () => {
+		const mockSupabase = createMockSupabase();
+		const event = createEvent('http://localhost:5173/admin/historial?desde=2026-09-06&hasta=2026-09-06', mockSupabase);
+
+		const result: any = await historialLoad(event as any);
+
+		expect(result.error).toBeUndefined();
+		// Debe incluir: 2026-09-06 00:01, 2026-09-06 12:00, 2026-09-06 22:45
+		// Debe excluir: 2026-09-07 00:01, 2026-09-07 12:00
+		expect(result.outlets).toHaveLength(3);
+		const ids = result.outlets.map((o: any) => o.id);
+		expect(ids).toContain('outlet-06-0001'); // 2026-09-06 00:01 incluido en 06/09
+		expect(ids).toContain('outlet-06-1200'); // 2026-09-06 12:00 incluido en 06/09
+		expect(ids).toContain('outlet-06-2245'); // 2026-09-06 22:45 incluido en 06/09
+		expect(ids).not.toContain('outlet-07-0001'); // 2026-09-07 00:01 excluido de 06/09
+		expect(ids).not.toContain('outlet-07-1200'); // 2026-09-07 12:00 excluido de 06/09
+
+		// Métricas del día 06: $100 + $150 + $200 = $450
+		expect(result.metrics.validSalesCount).toBe(3);
+		expect(result.metrics.canceledSalesCount).toBe(0);
+		expect(result.metrics.totalRevenue).toBe(450.0);
+		expect(result.filters.desde).toBe('2026-09-06');
+		expect(result.filters.hasta).toBe('2026-09-06');
+	});
+
+	it('filtro Hoy no devuelve ventas del día anterior (excluye 2026-09-06 12:00 y 2026-09-06 22:45) e incluye ventas del día 07/09', async () => {
+		const now = new Date();
+		const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+		const dynamicOutlets = [
+			{
+				id: 'outlet-yesterday-noon',
+				folio: 301,
+				user_id: 'cajero-1',
+				total_amount: 120.0,
+				is_canceled: false,
+				created_at: '2026-09-06 12:00', // 2026-09-06 12:00 -> excluido de Hoy
+				stock_outlet_items: []
+			},
+			{
+				id: 'outlet-yesterday-night',
+				folio: 302,
+				user_id: 'cajero-1',
+				total_amount: 80.0,
+				is_canceled: false,
+				created_at: '2026-09-06 22:45', // 2026-09-06 22:45 -> excluido de Hoy
+				stock_outlet_items: []
+			},
+			{
+				id: 'outlet-today-noon',
+				folio: 303,
+				user_id: 'cajero-1',
+				total_amount: 300.0,
+				is_canceled: false,
+				created_at: `${todayStr} 12:00`, // 2026-09-07 12:00 -> incluido en Hoy
+				stock_outlet_items: []
+			}
+		];
+
+		const mockSupabase = createMockSupabase(dynamicOutlets);
+		const event = createEvent('http://localhost:5173/admin/historial?hoy=true', mockSupabase);
+
+		const result: any = await historialLoad(event as any);
+
+		expect(result.error).toBeUndefined();
+		expect(result.outlets).toHaveLength(1);
+		expect(result.outlets[0].id).toBe('outlet-today-noon');
+		expect(result.metrics.validSalesCount).toBe(1);
+		expect(result.metrics.totalRevenue).toBe(300.0);
+		expect(result.filters.hoy).toBe(true);
+
+		// Confirmar explícitamente que no devuelve ventas del día anterior
+		const ids = result.outlets.map((o: any) => o.id);
+		expect(ids).not.toContain('outlet-yesterday-noon');
+		expect(ids).not.toContain('outlet-yesterday-night');
+	});
+
+	it('filtro desde 06/09 hasta 07/09 abarca el intervalo semiabierto completo [2026-09-06 00:00, 2026-09-08 00:00)', async () => {
+		const mockSupabase = createMockSupabase();
+		const event = createEvent('http://localhost:5173/admin/historial?desde=2026-09-06&hasta=2026-09-07', mockSupabase);
+
+		const result: any = await historialLoad(event as any);
+
+		expect(result.error).toBeUndefined();
+		// Incluye todas las ventas de 06/09 (3) y de 07/09 (2) = 5 ventas
+		expect(result.outlets).toHaveLength(5);
+		expect(result.metrics.validSalesCount).toBe(5);
+		expect(result.metrics.totalRevenue).toBe(800.0); // 100 + 150 + 200 + 50 + 300
+	});
+
+	it('formato PostgreSQL timestamptz (ISO con Z / +00) se normaliza a tiempo local de negocio correctamente', async () => {
+		const tzOutlets = [
+			{
+				id: 'outlet-tz-night-06',
+				folio: 401,
+				user_id: 'cajero-1',
+				total_amount: 180.0,
+				is_canceled: false,
+				// 2026-09-06 22:45:30 en UTC-6 se guarda en PostgreSQL como 2026-09-07 04:45:30Z
+				created_at: '2026-09-07T04:45:30.437Z',
+				stock_outlet_items: []
+			},
+			{
+				id: 'outlet-tz-noon-07',
+				folio: 402,
+				user_id: 'cajero-1',
+				total_amount: 220.0,
+				is_canceled: false,
+				// 2026-09-07 12:00:00 en UTC-6 se guarda en PostgreSQL como 2026-09-07 18:00:00Z
+				created_at: '2026-09-07T18:00:00.000Z',
+				stock_outlet_items: []
+			}
+		];
+		const mockSupabase = createMockSupabase(tzOutlets);
+
+		// Filtrar solo 06/09
+		const event06 = createEvent('http://localhost:5173/admin/historial?desde=2026-09-06&hasta=2026-09-06', mockSupabase);
+		const result06: any = await historialLoad(event06 as any);
+
+		expect(result06.error).toBeUndefined();
+		expect(result06.outlets).toHaveLength(1);
+		expect(result06.outlets[0].id).toBe('outlet-tz-night-06');
+		expect(result06.metrics.totalRevenue).toBe(180.0);
+
+		// Filtrar solo 07/09
+		const event07 = createEvent('http://localhost:5173/admin/historial?desde=2026-09-07&hasta=2026-09-07', mockSupabase);
+		const result07: any = await historialLoad(event07 as any);
+
+		expect(result07.error).toBeUndefined();
+		expect(result07.outlets).toHaveLength(1);
+		expect(result07.outlets[0].id).toBe('outlet-tz-noon-07');
+		expect(result07.metrics.totalRevenue).toBe(220.0);
 	});
 });

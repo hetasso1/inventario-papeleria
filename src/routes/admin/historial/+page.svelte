@@ -129,7 +129,7 @@
 		</div>
 
 		<!-- Notification Banner -->
-		{#if form?.error}
+		{#if data?.error || form?.error}
 			<div
 				role="alert"
 				class="rounded-xl bg-red-50 border border-red-200 p-4 text-sm text-red-700 flex items-center justify-between shadow-sm"
@@ -146,7 +146,7 @@
 							clip-rule="evenodd"
 						/>
 					</svg>
-					<span>{form.error}</span>
+					<span>{data?.error || form?.error}</span>
 				</div>
 			</div>
 		{:else if form?.success}

@@ -2,6 +2,66 @@ import { fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 
 /**
+ * Formats a Date object to local calendar YYYY-MM-DD string
+ */
+function getLocalDateString(d: Date): string {
+	const y = d.getFullYear();
+	const m = String(d.getMonth() + 1).padStart(2, '0');
+	const day = String(d.getDate()).padStart(2, '0');
+	return `${y}-${m}-${day}`;
+}
+
+/**
+ * Parses YYYY-MM-DD to local start of day (00:00:00.000)
+ */
+function getStartOfDay(dateStr: string): Date {
+	const [y, m, d] = dateStr.split('-').map(Number);
+	return new Date(y, m - 1, d, 0, 0, 0, 0);
+}
+
+/**
+ * Given YYYY-MM-DD, returns local start of the NEXT day (00:00:00.000)
+ * implementing the semi-open interval: [start, next_day)
+ */
+function getStartOfNextDay(dateStr: string): Date {
+	const [y, m, d] = dateStr.split('-').map(Number);
+	return new Date(y, m - 1, d + 1, 0, 0, 0, 0);
+}
+
+/**
+ * Extracts normalized local timestamp in milliseconds from a date/string
+ */
+function getOutletLocalTimeMs(val: any): number {
+	if (!val) return NaN;
+	if (val instanceof Date) {
+		return val.getTime();
+	}
+	if (typeof val === 'number') {
+		return val;
+	}
+	const s = String(val).trim();
+	// If string contains timezone info (Z, +HH:MM, -HH:MM, +HH, -HH), parse directly
+	if (/Z|[+-]\d{2}(?::?\d{2})?$/i.test(s)) {
+		const parsed = new Date(s).getTime();
+		if (!isNaN(parsed)) return parsed;
+	}
+	// If plain date YYYY-MM-DD or datetime without timezone, interpret as local calendar time
+	const m = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d+))?)?)?/);
+	if (m) {
+		const y = Number(m[1]);
+		const mon = Number(m[2]) - 1;
+		const d = Number(m[3]);
+		const h = Number(m[4] || 0);
+		const min = Number(m[5] || 0);
+		const sec = Number(m[6] || 0);
+		const ms = m[7] ? Number(m[7].slice(0, 3).padEnd(3, '0')) : 0;
+		return new Date(y, mon, d, h, min, sec, ms).getTime();
+	}
+	const fallback = new Date(s).getTime();
+	return isNaN(fallback) ? NaN : fallback;
+}
+
+/**
  * Server-side load and actions for /admin/historial (Sales History & Return/Cancellation Management).
  */
 export const load: PageServerLoad = async ({ locals, url }) => {
@@ -18,22 +78,38 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	const hastaParam = url.searchParams.get('hasta')?.trim() || '';
 	const hoyParam = url.searchParams.get('hoy')?.trim() === 'true';
 
-	let startDate: string | null = null;
-	let endDate: string | null = null;
+	const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
+
+	let startBoundMs: number | null = null;
+	let endBoundMs: number | null = null;
+	let startDateISO: string | null = null;
+	let nextDayDateISO: string | null = null;
 
 	if (hoyParam) {
-		const today = new Date().toISOString().slice(0, 10);
-		startDate = `${today}T00:00:00.000Z`;
-		endDate = `${today}T23:59:59.999Z`;
-	} else if (fechaParam) {
-		startDate = `${fechaParam}T00:00:00.000Z`;
-		endDate = `${fechaParam}T23:59:59.999Z`;
+		const todayStr = getLocalDateString(new Date());
+		const start = getStartOfDay(todayStr);
+		const nextDay = getStartOfNextDay(todayStr);
+		startBoundMs = start.getTime();
+		endBoundMs = nextDay.getTime();
+		startDateISO = start.toISOString();
+		nextDayDateISO = nextDay.toISOString();
+	} else if (fechaParam && DATE_REGEX.test(fechaParam)) {
+		const start = getStartOfDay(fechaParam);
+		const nextDay = getStartOfNextDay(fechaParam);
+		startBoundMs = start.getTime();
+		endBoundMs = nextDay.getTime();
+		startDateISO = start.toISOString();
+		nextDayDateISO = nextDay.toISOString();
 	} else {
-		if (desdeParam) {
-			startDate = `${desdeParam}T00:00:00.000Z`;
+		if (desdeParam && DATE_REGEX.test(desdeParam)) {
+			const start = getStartOfDay(desdeParam);
+			startBoundMs = start.getTime();
+			startDateISO = start.toISOString();
 		}
-		if (hastaParam) {
-			endDate = `${hastaParam}T23:59:59.999Z`;
+		if (hastaParam && DATE_REGEX.test(hastaParam)) {
+			const nextDay = getStartOfNextDay(hastaParam);
+			endBoundMs = nextDay.getTime();
+			nextDayDateISO = nextDay.toISOString();
 		}
 	}
 
@@ -65,16 +141,20 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 			)
 		`);
 
-	if (startDate) {
-		query = query.gte('created_at', startDate);
+	if (startDateISO && typeof (query as any).gte === 'function') {
+		query = (query as any).gte('created_at', startDateISO);
 	}
-	if (endDate) {
-		query = query.lte('created_at', endDate);
+	if (nextDayDateISO) {
+		if (typeof (query as any).lt === 'function') {
+			query = (query as any).lt('created_at', nextDayDateISO);
+		} else if (typeof (query as any).lte === 'function') {
+			query = (query as any).lte('created_at', nextDayDateISO);
+		}
 	}
 
 	query = query.order('created_at', { ascending: false });
 
-	const { data: outlets, error } = await query;
+	const { data: rawOutlets, error } = await query;
 
 	if (error) {
 		return {
@@ -92,6 +172,24 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 			},
 			error: 'Error al cargar el historial de ventas.'
 		};
+	}
+
+	// Semi-open interval calendar date filtering: [startBoundMs, endBoundMs)
+	// Ensures 'hasta' is inclusive at the calendar day level without requiring exact millisecond borders.
+	let outlets = rawOutlets ?? [];
+	if (startBoundMs !== null) {
+		outlets = outlets.filter((o: any) => {
+			const t = getOutletLocalTimeMs(o.created_at);
+			if (isNaN(t)) return false;
+			return t >= startBoundMs;
+		});
+	}
+	if (endBoundMs !== null) {
+		outlets = outlets.filter((o: any) => {
+			const t = getOutletLocalTimeMs(o.created_at);
+			if (isNaN(t)) return false;
+			return t < endBoundMs;
+		});
 	}
 
 	// If any outlet is missing items (e.g. if stock_outlet_items RLS policy is not yet applied),
