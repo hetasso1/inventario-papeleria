@@ -38,25 +38,23 @@
 
 	let totalAmount = $derived(calculateTotal(items));
 	let totalUnits = $derived(
-		Math.round(items.reduce((acc, item) => acc + item.quantity, 0) * 1000) / 1000
+		items.reduce((acc, item) => acc + item.quantity, 0)
 	);
 
 	function handleQuantityChange(id: string, value: number) {
-		if (isNaN(value) || value <= 0) {
+		if (isNaN(value) || value < 1) {
 			return;
 		}
-		onUpdateQuantity(id, Math.round(value * 1000) / 1000);
+		onUpdateQuantity(id, Math.max(1, Math.floor(value)));
 	}
 
 	function increment(item: CartItem) {
-		handleQuantityChange(item.id, item.quantity + 1);
+		handleQuantityChange(item.id, Math.floor(item.quantity) + 1);
 	}
 
 	function decrement(item: CartItem) {
 		if (item.quantity > 1) {
-			handleQuantityChange(item.id, item.quantity - 1);
-		} else if (item.quantity > 0.1) {
-			handleQuantityChange(item.id, Math.max(0.001, item.quantity - 0.1));
+			handleQuantityChange(item.id, Math.floor(item.quantity) - 1);
 		}
 	}
 </script>
@@ -136,18 +134,19 @@
 								<div class="flex items-center justify-center gap-1">
 									<button
 										type="button"
+										disabled={item.quantity <= 1}
 										onclick={() => decrement(item)}
-										class="h-7 w-7 rounded-md border border-input bg-background text-muted-foreground hover:text-foreground hover:bg-accent flex items-center justify-center transition-colors cursor-pointer"
+										class="h-7 w-7 rounded-md border border-input bg-background text-muted-foreground hover:text-foreground hover:bg-accent flex items-center justify-center transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
 										aria-label="Disminuir cantidad"
 									>
 										<Minus class="h-3 w-3" strokeWidth={2} />
 									</button>
 									<input
 										type="number"
-										step="0.001"
-										min="0.001"
+										step="1"
+										min="1"
 										value={item.quantity}
-										onchange={(e) => handleQuantityChange(item.id, parseFloat((e.target as HTMLInputElement).value))}
+										onchange={(e) => handleQuantityChange(item.id, parseInt((e.target as HTMLInputElement).value, 10))}
 										class="w-14 h-7 rounded-md border border-input bg-background px-1 text-center font-mono text-xs text-foreground focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none tabular-nums"
 									/>
 									<button

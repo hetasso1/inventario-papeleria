@@ -181,7 +181,7 @@ describe('ISSUE-004: Server-Side POS (+page.server.ts)', () => {
 		const idempotencyKey = '550e8400-e29b-41d4-a716-446655440000';
 		const cartItems = [
 			{ product_id: 'prod-uuid-1', quantity: 2 },
-			{ product_id: 'prod-uuid-2', quantity: 1.5 }
+			{ product_id: 'prod-uuid-2', quantity: 1 }
 		];
 
 		const formData = new FormData();
@@ -199,7 +199,7 @@ describe('ISSUE-004: Server-Side POS (+page.server.ts)', () => {
 		expect(mockSupabase.rpc).toHaveBeenCalledWith('process_stock_outlet', {
 			p_items: [
 				{ product_id: 'prod-uuid-1', quantity: 2 },
-				{ product_id: 'prod-uuid-2', quantity: 1.5 }
+				{ product_id: 'prod-uuid-2', quantity: 1 }
 			],
 			p_idempotency_key: idempotencyKey
 		});
@@ -214,6 +214,30 @@ describe('ISSUE-004: Server-Side POS (+page.server.ts)', () => {
 
 		expect(result.status).toBe(400);
 		expect(result.data.error).toContain('al menos un producto');
+		expect(mockSupabase.rpc).not.toHaveBeenCalled();
+	});
+
+	it('action checkout fails with 400 when quantity is decimal (e.g. 0.9 or 1.5)', async () => {
+		const formData = new FormData();
+		formData.append('items', JSON.stringify([{ product_id: 'prod-uuid-1', quantity: 0.9 }]));
+
+		const event = createMockEvent({ role: 'cajero', formData });
+		const result: any = await (actions as any).checkout(event);
+
+		expect(result.status).toBe(400);
+		expect(result.data.error).toContain('número entero mayor o igual a 1');
+		expect(mockSupabase.rpc).not.toHaveBeenCalled();
+	});
+
+	it('action checkout fails with 400 when quantity is less than 1 (0 or negative)', async () => {
+		const formData = new FormData();
+		formData.append('items', JSON.stringify([{ product_id: 'prod-uuid-1', quantity: 0 }]));
+
+		const event = createMockEvent({ role: 'cajero', formData });
+		const result: any = await (actions as any).checkout(event);
+
+		expect(result.status).toBe(400);
+		expect(result.data.error).toContain('número entero mayor o igual a 1');
 		expect(mockSupabase.rpc).not.toHaveBeenCalled();
 	});
 

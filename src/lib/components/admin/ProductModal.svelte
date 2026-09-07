@@ -1,6 +1,4 @@
-<script lang="ts">
-	import { enhance } from "$app/forms";
-
+<script lang="ts" module>
 	export interface ProductData {
 		id?: string;
 		sku_code: string;
@@ -13,6 +11,85 @@
 		image_url?: string | null;
 		is_active?: boolean;
 	}
+
+	export interface ProductFormValues {
+		sku?: string;
+		name?: string;
+		description?: string;
+		price?: number | string;
+		cost?: number | string;
+		stock?: number | string;
+		minStock?: number | string;
+		imageUrl?: string;
+	}
+
+	/**
+	 * Pure function to detect dirty state in product creation or edition.
+	 */
+	export function isProductFormDirty(
+		initial: ProductData | null,
+		current: ProductFormValues
+	): boolean {
+		if (!initial) {
+			const sku = (current.sku ?? '').trim();
+			const name = (current.name ?? '').trim();
+			const desc = (current.description ?? '').trim();
+			const price = Number(current.price ?? 0);
+			const cost = Number(current.cost ?? 0);
+			const stock = Number(current.stock ?? 0);
+			const minStock = current.minStock !== undefined && current.minStock !== '' ? Number(current.minStock) : 5;
+			const img = (current.imageUrl ?? '').trim();
+
+			return (
+				sku !== '' ||
+				name !== '' ||
+				desc !== '' ||
+				price !== 0 ||
+				cost !== 0 ||
+				stock !== 0 ||
+				minStock !== 5 ||
+				img !== ''
+			);
+		}
+
+		const curSku = (current.sku ?? '').trim();
+		const initSku = (initial.sku_code ?? '').trim();
+		if (curSku !== initSku) return true;
+
+		const curName = (current.name ?? '').trim();
+		const initName = (initial.name ?? '').trim();
+		if (curName !== initName) return true;
+
+		const curDesc = (current.description ?? '').trim();
+		const initDesc = (initial.description ?? '').trim();
+		if (curDesc !== initDesc) return true;
+
+		const curPrice = Number(current.price ?? 0);
+		const initPrice = Number(initial.price ?? 0);
+		if (curPrice !== initPrice) return true;
+
+		const curCost = Number(current.cost ?? 0);
+		const initCost = Number(initial.cost ?? 0);
+		if (curCost !== initCost) return true;
+
+		const curStock = Number(current.stock ?? 0);
+		const initStock = Number(initial.stock ?? 0);
+		if (curStock !== initStock) return true;
+
+		const curMinStock = current.minStock !== undefined && current.minStock !== '' ? Number(current.minStock) : 5;
+		const initMinStock = Number(initial.min_stock ?? 5);
+		if (curMinStock !== initMinStock) return true;
+
+		const curImg = (current.imageUrl ?? '').trim();
+		const initImg = (initial.image_url ?? '').trim();
+		if (curImg !== initImg) return true;
+
+		return false;
+	}
+</script>
+
+<script lang="ts">
+	import { enhance } from "$app/forms";
 
 	let {
 		isOpen = false,
@@ -29,6 +106,7 @@
 
 	let submitting = $state(false);
 	let formError = $state<string | null>(null);
+	let showUnsavedConfirm = $state(false);
 
 	// Local state bound to inputs
 	let sku = $state("");
@@ -39,6 +117,19 @@
 	let stock = $state<number | string>(0);
 	let minStock = $state<number | string>(5);
 	let imageUrl = $state("");
+
+	let isDirty = $derived(
+		isProductFormDirty(product, {
+			sku,
+			name,
+			description,
+			price,
+			cost,
+			stock,
+			minStock,
+			imageUrl
+		})
+	);
 
 	$effect(() => {
 		if (product) {
@@ -61,12 +152,37 @@
 			imageUrl = "";
 		}
 		formError = null;
+		showUnsavedConfirm = false;
 	});
+
+	function handleBackdropClick() {
+		if (showUnsavedConfirm) {
+			showUnsavedConfirm = false;
+			return;
+		}
+		if (isDirty) {
+			showUnsavedConfirm = true;
+		} else {
+			onClose();
+		}
+	}
 
 	function handleKeydown(e: KeyboardEvent) {
 		if (e.key === "Escape" && isOpen) {
-			onClose();
+			if (showUnsavedConfirm) {
+				showUnsavedConfirm = false;
+			} else if (isDirty) {
+				showUnsavedConfirm = true;
+			} else {
+				onClose();
+			}
 		}
+	}
+
+	function discardAndClose() {
+		showUnsavedConfirm = false;
+		formError = null;
+		onClose();
 	}
 </script>
 
@@ -79,8 +195,8 @@
 		aria-modal="true"
 		aria-labelledby="modal-title"
 	>
-		<!-- Backdrop click to close -->
-		<div class="fixed inset-0" onclick={onClose} aria-hidden="true"></div>
+		<!-- Backdrop click to close (guarded if dirty) -->
+		<div class="fixed inset-0" onclick={handleBackdropClick} aria-hidden="true"></div>
 
 		<div
 			class="relative w-full max-w-2xl overflow-hidden rounded-xl bg-white border border-slate-200 p-6 sm:p-8 shadow-xl text-slate-900 z-10 max-h-[90vh] overflow-y-auto space-y-6"
@@ -407,5 +523,51 @@
 				</div>
 			</form>
 		</div>
+
+		{#if showUnsavedConfirm}
+			<div
+				class="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fade-in"
+				role="alertdialog"
+				aria-labelledby="confirm-unsaved-title"
+				aria-describedby="confirm-unsaved-desc"
+			>
+				<div class="w-full max-w-md rounded-xl bg-white border border-slate-200 p-6 shadow-2xl space-y-4 text-slate-900">
+					<div class="flex items-start gap-3 text-amber-600">
+						<div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-100">
+							<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+							</svg>
+						</div>
+						<div>
+							<h3 id="confirm-unsaved-title" class="text-base font-bold text-slate-900">
+								Cambios pendientes sin guardar
+							</h3>
+							<p id="confirm-unsaved-desc" class="text-xs text-slate-500 mt-1 leading-relaxed">
+								Tienes modificaciones sin guardar en el producto. Si sales ahora, los cambios se descartarán permanentemente.
+							</p>
+						</div>
+					</div>
+
+					<div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-100">
+						<button
+							id="btn-continue-editing"
+							type="button"
+							onclick={() => { showUnsavedConfirm = false; }}
+							class="rounded-lg px-4 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 transition-colors shadow-sm cursor-pointer"
+						>
+							Continuar Editando
+						</button>
+						<button
+							id="btn-discard-changes"
+							type="button"
+							onclick={discardAndClose}
+							class="rounded-lg bg-red-600 px-4 py-2 text-xs font-medium text-white shadow-sm hover:bg-red-700 focus:outline-none transition-all cursor-pointer"
+						>
+							Descartar y Salir
+						</button>
+					</div>
+				</div>
+			</div>
+		{/if}
 	</div>
 {/if}

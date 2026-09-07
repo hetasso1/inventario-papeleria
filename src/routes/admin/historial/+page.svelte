@@ -173,6 +173,84 @@
 			</div>
 		{/if}
 
+		<!-- Metrics Cards -->
+		<div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+			<div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-1">
+				<span class="text-xs font-medium text-slate-500 uppercase tracking-wider">Ventas Válidas</span>
+				<div class="text-2xl font-bold text-emerald-600">
+					{data.metrics?.validSalesCount ?? data.outlets.filter((o: any) => !o.is_canceled).length}
+				</div>
+				<p class="text-[11px] text-slate-400">Transacciones activas en el período</p>
+			</div>
+
+			<div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-1">
+				<span class="text-xs font-medium text-slate-500 uppercase tracking-wider">Ingresos del Período</span>
+				<div class="text-2xl font-bold text-slate-900">
+					${(data.metrics?.totalRevenue ?? 0).toFixed(2)}
+				</div>
+				<p class="text-[11px] text-slate-400">Suma total de ventas no canceladas</p>
+			</div>
+
+			<div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-1">
+				<span class="text-xs font-medium text-slate-500 uppercase tracking-wider">Ventas Canceladas</span>
+				<div class="text-2xl font-bold text-red-600">
+					{data.metrics?.canceledSalesCount ?? data.outlets.filter((o: any) => o.is_canceled).length}
+				</div>
+				<p class="text-[11px] text-slate-400">Devoluciones supervisadas</p>
+			</div>
+		</div>
+
+		<!-- Date Filter Bar -->
+		<form method="GET" class="flex flex-wrap items-center gap-3 bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+			<div class="flex items-center gap-2">
+				<span class="text-xs font-semibold uppercase tracking-wider text-slate-500">Período:</span>
+				<a
+					href="?hoy=true"
+					class="px-3 py-1.5 rounded-lg text-xs font-medium border border-slate-200 transition-colors {data.filters?.hoy ? 'bg-black text-white hover:bg-black/90' : 'bg-white text-slate-700 hover:bg-slate-100'}"
+				>
+					Hoy
+				</a>
+			</div>
+
+			<div class="flex items-center gap-2">
+				<label for="filter-desde" class="text-xs text-slate-500 font-medium">Desde:</label>
+				<input
+					id="filter-desde"
+					type="date"
+					name="desde"
+					value={data.filters?.desde ?? ''}
+					class="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-900 shadow-xs focus:outline-none focus:ring-1 focus:ring-black"
+				/>
+			</div>
+
+			<div class="flex items-center gap-2">
+				<label for="filter-hasta" class="text-xs text-slate-500 font-medium">Hasta:</label>
+				<input
+					id="filter-hasta"
+					type="date"
+					name="hasta"
+					value={data.filters?.hasta ?? ''}
+					class="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-900 shadow-xs focus:outline-none focus:ring-1 focus:ring-black"
+				/>
+			</div>
+
+			<button
+				type="submit"
+				class="px-3 py-1.5 rounded-lg bg-black text-white text-xs font-medium hover:bg-black/90 transition-colors cursor-pointer"
+			>
+				Filtrar
+			</button>
+
+			{#if data.filters?.fecha || data.filters?.desde || data.filters?.hasta || data.filters?.hoy}
+				<a
+					href="/admin/historial"
+					class="px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 text-xs font-medium hover:bg-slate-50 transition-colors"
+				>
+					Limpiar Filtros
+				</a>
+			{/if}
+		</form>
+
 		<!-- Filters & Search -->
 		<div
 			class="flex flex-col sm:flex-row gap-4 items-center justify-between bg-white p-4 rounded-xl border border-slate-200 shadow-sm"

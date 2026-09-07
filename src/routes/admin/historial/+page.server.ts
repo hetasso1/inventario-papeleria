@@ -4,7 +4,7 @@ import type { Actions, PageServerLoad } from './$types';
 /**
  * Server-side load and actions for /admin/historial (Sales History & Return/Cancellation Management).
  */
-export const load: PageServerLoad = async ({ locals }) => {
+export const load: PageServerLoad = async ({ locals, url }) => {
 	// Guard: Ensure user is authenticated and is admin
 	if (!locals.user) {
 		throw redirect(303, '/login');
@@ -13,8 +13,32 @@ export const load: PageServerLoad = async ({ locals }) => {
 		throw redirect(303, '/caja');
 	}
 
+	const fechaParam = url.searchParams.get('fecha')?.trim() || '';
+	const desdeParam = url.searchParams.get('desde')?.trim() || '';
+	const hastaParam = url.searchParams.get('hasta')?.trim() || '';
+	const hoyParam = url.searchParams.get('hoy')?.trim() === 'true';
+
+	let startDate: string | null = null;
+	let endDate: string | null = null;
+
+	if (hoyParam) {
+		const today = new Date().toISOString().slice(0, 10);
+		startDate = `${today}T00:00:00.000Z`;
+		endDate = `${today}T23:59:59.999Z`;
+	} else if (fechaParam) {
+		startDate = `${fechaParam}T00:00:00.000Z`;
+		endDate = `${fechaParam}T23:59:59.999Z`;
+	} else {
+		if (desdeParam) {
+			startDate = `${desdeParam}T00:00:00.000Z`;
+		}
+		if (hastaParam) {
+			endDate = `${hastaParam}T23:59:59.999Z`;
+		}
+	}
+
 	// Fetch sales outlets with associated items and product names (NO costs queried)
-	const { data: outlets, error } = await locals.supabase
+	let query = locals.supabase
 		.from('stock_outlets')
 		.select(`
 			id,
@@ -38,12 +62,33 @@ export const load: PageServerLoad = async ({ locals }) => {
 					sku_code
 				)
 			)
-		`)
-		.order('created_at', { ascending: false });
+		`);
+
+	if (startDate) {
+		query = query.gte('created_at', startDate);
+	}
+	if (endDate) {
+		query = query.lte('created_at', endDate);
+	}
+
+	query = query.order('created_at', { ascending: false });
+
+	const { data: outlets, error } = await query;
 
 	if (error) {
 		return {
 			outlets: [],
+			metrics: {
+				validSalesCount: 0,
+				canceledSalesCount: 0,
+				totalRevenue: 0
+			},
+			filters: {
+				fecha: fechaParam,
+				desde: desdeParam,
+				hasta: hastaParam,
+				hoy: hoyParam
+			},
 			error: 'Error al cargar el historial de ventas.'
 		};
 	}
@@ -123,8 +168,25 @@ export const load: PageServerLoad = async ({ locals }) => {
 		};
 	});
 
+	const validOutlets = sanitizedOutlets.filter((o: any) => !o.is_canceled);
+	const canceledOutlets = sanitizedOutlets.filter((o: any) => o.is_canceled);
+	const validSalesCount = validOutlets.length;
+	const canceledSalesCount = canceledOutlets.length;
+	const totalRevenue = Math.round(validOutlets.reduce((acc: number, o: any) => acc + (Number(o.total_amount) || 0), 0) * 100) / 100;
+
 	return {
-		outlets: sanitizedOutlets
+		outlets: sanitizedOutlets,
+		metrics: {
+			validSalesCount,
+			canceledSalesCount,
+			totalRevenue
+		},
+		filters: {
+			fecha: fechaParam,
+			desde: desdeParam,
+			hasta: hastaParam,
+			hoy: hoyParam
+		}
 	};
 };
 

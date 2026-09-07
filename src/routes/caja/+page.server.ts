@@ -85,7 +85,7 @@ export const actions: Actions = {
 			});
 		}
 
-		// Validate each item (product_id non-empty and quantity > 0)
+		// Validate each item (product_id non-empty and integer quantity >= 1)
 		for (const item of parsedItems) {
 			if (!item.product_id || typeof item.product_id !== 'string') {
 				return fail(400, {
@@ -94,9 +94,9 @@ export const actions: Actions = {
 				});
 			}
 			const qty = Number(item.quantity);
-			if (isNaN(qty) || qty <= 0) {
+			if (isNaN(qty) || !Number.isInteger(qty) || qty < 1) {
 				return fail(400, {
-					error: 'La cantidad para cada producto debe ser mayor a 0.',
+					error: 'La cantidad para cada producto debe ser un número entero mayor o igual a 1.',
 					idempotencyKey
 				});
 			}

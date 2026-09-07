@@ -28,9 +28,10 @@ describe('ISSUE-005: Sales History & Returns (+page.server.ts)', () => {
 		user?: any;
 		role?: 'admin' | 'cajero' | null;
 		formData?: FormData;
+		url?: string;
 	}) {
 		return {
-			url: new URL('http://localhost:5173/admin/historial'),
+			url: new URL(options.url ?? 'http://localhost:5173/admin/historial'),
 			locals: {
 				user: options.user !== undefined ? options.user : { id: 'admin-uuid-1', email: 'admin@papeleria.local' },
 				role: options.role !== undefined ? options.role : 'admin',
@@ -166,6 +167,89 @@ describe('ISSUE-005: Sales History & Returns (+page.server.ts)', () => {
 
 		expect(result.outlets).toEqual([]);
 		expect(result.error).toBe('Error al cargar el historial de ventas.');
+	});
+
+	it('historial load filters by single date and calculates metrics (excluding canceled sales from revenue)', async () => {
+		const sampleOutlets = [
+			{
+				id: 'outlet-valid-1',
+				user_id: 'cajero-uuid-1',
+				total_amount: 150.0,
+				is_canceled: false,
+				created_at: '2026-09-06T10:00:00Z',
+				stock_outlet_items: [
+					{ id: 'i1', product_id: 'p1', quantity: 2, unit_price: 75.0, subtotal: 150.0, products: { name: 'Item 1', sku_code: 'SKU-1' } }
+				]
+			},
+			{
+				id: 'outlet-canceled-1',
+				user_id: 'cajero-uuid-1',
+				total_amount: 50.0,
+				is_canceled: true,
+				canceled_at: '2026-09-06T11:00:00Z',
+				cancel_reason: 'Error de cobro',
+				created_at: '2026-09-06T10:30:00Z',
+				stock_outlet_items: [
+					{ id: 'i2', product_id: 'p2', quantity: 1, unit_price: 50.0, subtotal: 50.0, products: { name: 'Item 2', sku_code: 'SKU-2' } }
+				]
+			}
+		];
+
+		const queryBuilder: any = {};
+		queryBuilder.select = vi.fn().mockReturnValue(queryBuilder);
+		queryBuilder.gte = vi.fn().mockReturnValue(queryBuilder);
+		queryBuilder.lte = vi.fn().mockReturnValue(queryBuilder);
+		queryBuilder.order = vi.fn().mockResolvedValue({ data: sampleOutlets, error: null });
+		mockSupabase.from.mockReturnValue(queryBuilder);
+
+		const event = createMockEvent({
+			role: 'admin',
+			url: 'http://localhost:5173/admin/historial?fecha=2026-09-06'
+		});
+		const result: any = await historialLoad(event as any);
+
+		expect(queryBuilder.gte).toHaveBeenCalledWith('created_at', '2026-09-06T00:00:00.000Z');
+		expect(queryBuilder.lte).toHaveBeenCalledWith('created_at', '2026-09-06T23:59:59.999Z');
+		expect(result.outlets).toHaveLength(2);
+		expect(result.metrics.validSalesCount).toBe(1);
+		expect(result.metrics.canceledSalesCount).toBe(1);
+		expect(result.metrics.totalRevenue).toBe(150.0);
+		expect(result.filters.fecha).toBe('2026-09-06');
+		// Ensure no confidential costs are exposed
+		expect(JSON.stringify(result)).not.toContain('product_costs');
+		expect(JSON.stringify(result)).not.toContain('"cost"');
+	});
+
+	it('historial load handles date range (desde/hasta) and preset hoy', async () => {
+		const queryBuilder: any = {};
+		queryBuilder.select = vi.fn().mockReturnValue(queryBuilder);
+		queryBuilder.gte = vi.fn().mockReturnValue(queryBuilder);
+		queryBuilder.lte = vi.fn().mockReturnValue(queryBuilder);
+		queryBuilder.order = vi.fn().mockResolvedValue({ data: [], error: null });
+		mockSupabase.from.mockReturnValue(queryBuilder);
+
+		// 1. Test desde / hasta range
+		const eventRange = createMockEvent({
+			role: 'admin',
+			url: 'http://localhost:5173/admin/historial?desde=2026-09-01&hasta=2026-09-05'
+		});
+		const resultRange: any = await historialLoad(eventRange as any);
+
+		expect(queryBuilder.gte).toHaveBeenCalledWith('created_at', '2026-09-01T00:00:00.000Z');
+		expect(queryBuilder.lte).toHaveBeenCalledWith('created_at', '2026-09-05T23:59:59.999Z');
+		expect(resultRange.filters.desde).toBe('2026-09-01');
+		expect(resultRange.filters.hasta).toBe('2026-09-05');
+
+		// 2. Test hoy preset
+		const eventHoy = createMockEvent({
+			role: 'admin',
+			url: 'http://localhost:5173/admin/historial?hoy=true'
+		});
+		const resultHoy: any = await historialLoad(eventHoy as any);
+		expect(resultHoy.filters.hoy).toBe(true);
+		const todayStr = new Date().toISOString().slice(0, 10);
+		expect(queryBuilder.gte).toHaveBeenCalledWith('created_at', `${todayStr}T00:00:00.000Z`);
+		expect(queryBuilder.lte).toHaveBeenCalledWith('created_at', `${todayStr}T23:59:59.999Z`);
 	});
 
 	it('historial cancel action invokes cancel_stock_outlet RPC with outlet ID and reason', async () => {

@@ -110,6 +110,10 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON ROUTINES TO authenticated
 	const migrationSql = readFileSync(migrationPath, 'utf-8');
 	spawnSync('docker', ['exec', '-i', CONTAINER_NAME, 'psql', '-U', DB_USER, '-d', DB_NAME, '-v', 'ON_ERROR_STOP=1', '-q'], { input: migrationSql, encoding: 'utf-8' });
 
+	const incrementalPath = resolve('supabase/migrations/20260906000000_enforce_integer_quantities_in_pos.sql');
+	const incrementalSql = readFileSync(incrementalPath, 'utf-8');
+	spawnSync('docker', ['exec', '-i', CONTAINER_NAME, 'psql', '-U', DB_USER, '-d', DB_NAME, '-v', 'ON_ERROR_STOP=1', '-q'], { input: incrementalSql, encoding: 'utf-8' });
+
 	const grantAfter = `
 GRANT ALL ON ALL TABLES IN SCHEMA public TO authenticated;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO authenticated;
@@ -282,7 +286,7 @@ SELECT process_stock_outlet(
 		expect(outletCount).toBe('1');
 	});
 
-	it('supports fractional quantity sales (e.g., ribbon or paper sold by meter)', () => {
+	it('enforces integer quantities >= 1: rejects fractional (3.750, 0.9, 1.5), zero (0) and negative (-1), while accepting valid integers (1, 2)', () => {
 		const prodId = execSql(`
 SELECT upsert_product_with_cost(
   NULL::uuid,
@@ -297,32 +301,44 @@ SELECT upsert_product_with_cost(
 );
 `, { role: 'admin', userId: ADMIN_ID });
 
-		// Sell 3.750 meters
-		const saleSql = `
-SELECT process_stock_outlet(
-  jsonb_build_array(jsonb_build_object('product_id', '${prodId}'::uuid, 'quantity', 3.750)),
-  'e0000000-0000-0000-0000-000000000004'::uuid
-);
-`;
-		const saleRes = runPsql(saleSql, { role: 'cajero', userId: CAJERO_ID });
-		expect(saleRes.status).toBe(0);
-		const outletId = saleRes.stdout.trim();
+		// 1. Historical 3.750 must be rejected
+		const res3750 = runPsql(`SELECT process_stock_outlet(jsonb_build_array(jsonb_build_object('product_id', '${prodId}'::uuid, 'quantity', 3.750)));`, { role: 'cajero', userId: CAJERO_ID });
+		expect(res3750.status).not.toBe(0);
+		expect(res3750.stderr).toContain('Cantidad inválida');
 
-		// Remaining stock: 50.000 - 3.750 = 46.250
+		// 2. Reject 0
+		const res0 = runPsql(`SELECT process_stock_outlet(jsonb_build_array(jsonb_build_object('product_id', '${prodId}'::uuid, 'quantity', 0)));`, { role: 'cajero', userId: CAJERO_ID });
+		expect(res0.status).not.toBe(0);
+
+		// 3. Reject -1
+		const resNeg = runPsql(`SELECT process_stock_outlet(jsonb_build_array(jsonb_build_object('product_id', '${prodId}'::uuid, 'quantity', -1)));`, { role: 'cajero', userId: CAJERO_ID });
+		expect(resNeg.status).not.toBe(0);
+
+		// 4. Reject 0.9
+		const res09 = runPsql(`SELECT process_stock_outlet(jsonb_build_array(jsonb_build_object('product_id', '${prodId}'::uuid, 'quantity', 0.9)));`, { role: 'cajero', userId: CAJERO_ID });
+		expect(res09.status).not.toBe(0);
+		expect(res09.stderr).toContain('Cantidad inválida');
+
+		// 5. Reject 1.5
+		const res15 = runPsql(`SELECT process_stock_outlet(jsonb_build_array(jsonb_build_object('product_id', '${prodId}'::uuid, 'quantity', 1.5)));`, { role: 'cajero', userId: CAJERO_ID });
+		expect(res15.status).not.toBe(0);
+		expect(res15.stderr).toContain('Cantidad inválida');
+
+		// 6. Accept 1
+		const res1 = runPsql(`SELECT process_stock_outlet(jsonb_build_array(jsonb_build_object('product_id', '${prodId}'::uuid, 'quantity', 1)));`, { role: 'cajero', userId: CAJERO_ID });
+		expect(res1.status).toBe(0);
+
+		// 7. Accept 2
+		const res2 = runPsql(`SELECT process_stock_outlet(jsonb_build_array(jsonb_build_object('product_id', '${prodId}'::uuid, 'quantity', 2)));`, { role: 'cajero', userId: CAJERO_ID });
+		expect(res2.status).toBe(0);
+
+		// Remaining stock: 50.000 - 1 - 2 = 47.000
 		const product = queryAsRole<Array<{ stock: number }>>(
 			'cajero',
 			CAJERO_ID,
 			`SELECT json_agg(p) FROM products p WHERE id = '${prodId}';`
 		);
-		expect(Number(product[0].stock)).toBe(46.250);
-
-		// Total amount: 3.750 * 12.00 = 45.00
-		const outlet = queryAsRole<Array<{ total_amount: number }>>(
-			'cajero',
-			CAJERO_ID,
-			`SELECT json_agg(o) FROM stock_outlets o WHERE id = '${outletId}';`
-		);
-		expect(Number(outlet[0].total_amount)).toBe(45.00);
+		expect(Number(product[0].stock)).toBe(47.000);
 	});
 
 	it('fails and rolls back atomically when requesting insufficient stock', () => {
