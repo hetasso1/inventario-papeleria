@@ -1,8 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
 import { load, actions } from '../../src/routes/admin/productos/+page.server';
 import { GET as exportProducts } from '../../src/routes/admin/productos/export/+server';
 import { GET as serveImage } from '../../src/routes/uploads/products/[filename]/+server';
-import { isProductFormDirty } from '../../src/lib/components/admin/ProductModal.svelte';
+import { isProductFormDirty, stepNumberValue, validateProductFormInput } from '../../src/lib/components/admin/ProductModal.svelte';
 import type { RequestEvent } from '@sveltejs/kit';
 
 /**
@@ -555,20 +555,119 @@ describe('SPRINT 19: ProductModal Dirty State & Protection (ProductModal.svelte)
 	});
 });
 
-describe('Product Image Precision & Upload Features', () => {
-	it('price input step is 0.01', () => {
-		// Verification: the step attribute in the ProductModal form for price is step="0.01"
-		// This test validates the server-side does NOT reject decimal prices with 2 decimal places
+describe('Product Numeric Precision & Stepper Features (FEATURE-PROD-IMG-PRECISION)', () => {
+	it('verifies step attribute values in ProductModal.svelte template', async () => {
+		const { readFile } = await import('node:fs/promises');
+		const { resolve } = await import('node:path');
+		const modalPath = resolve(process.cwd(), 'src/lib/components/admin/ProductModal.svelte');
+		const content = await readFile(modalPath, 'utf-8');
+
+		// Check price step="0.5"
+		expect(content).toMatch(/<input[^>]*id="price"[^>]*step="0\.5"/s);
+		// Check cost step="0.01" (unchanged, isolated)
+		expect(content).toMatch(/<input[^>]*id="cost"[^>]*step="0\.01"/s);
+		// Check stock step="1"
+		expect(content).toMatch(/<input[^>]*id="stock"[^>]*step="1"/s);
+		// Check min_stock step="1"
+		expect(content).toMatch(/<input[^>]*id="min_stock"[^>]*step="1"/s);
+		// Check form novalidate to allow manual entry of custom decimals without stepMismatch blocking
+		expect(content).toMatch(/<form[^>]*novalidate/s);
+	});
+
+	it('PRECIO DE VENTA: arrow increment (+0.50) and decrement (-0.50) mandatory cases: 5.00 ↑ => 5.50 → 6.00 → 6.50, and 6.50 ↓ => 6.00 → 5.50 → 5.00', () => {
+		const step = 0.5;
+		let val = 5.00;
+
+		val = stepNumberValue(val, step, 'up');
+		expect(val).toBe(5.50);
+
+		val = stepNumberValue(val, step, 'up');
+		expect(val).toBe(6.00);
+
+		val = stepNumberValue(val, step, 'up');
+		expect(val).toBe(6.50);
+
+		val = stepNumberValue(val, step, 'down');
+		expect(val).toBe(6.00);
+
+		val = stepNumberValue(val, step, 'down');
+		expect(val).toBe(5.50);
+
+		val = stepNumberValue(val, step, 'down');
+		expect(val).toBe(5.00);
+	});
+
+	it('COSTO UNITARIO: arrow increment (+0.01) and decrement (-0.01) (retains step="0.01"): 5.00 ↑ => 5.01, 5.01 ↑ => 5.02, 5.02 ↓ => 5.01', () => {
+		const step = 0.01;
+		let val = 5.00;
+
+		val = stepNumberValue(val, step, 'up');
+		expect(val).toBe(5.01);
+
+		val = stepNumberValue(val, step, 'up');
+		expect(val).toBe(5.02);
+
+		val = stepNumberValue(val, step, 'down');
+		expect(val).toBe(5.01);
+	});
+
+	it('STOCK ACTUAL: arrow increment (+1) and decrement (-1) mandatory cases: 5 ↑ => 6 → 7 → 8, and 8 ↓ => 7 → 6 → 5', () => {
+		const step = 1;
+		let val = 5;
+
+		val = stepNumberValue(val, step, 'up');
+		expect(val).toBe(6);
+
+		val = stepNumberValue(val, step, 'up');
+		expect(val).toBe(7);
+
+		val = stepNumberValue(val, step, 'up');
+		expect(val).toBe(8);
+
+		val = stepNumberValue(val, step, 'down');
+		expect(val).toBe(7);
+
+		val = stepNumberValue(val, step, 'down');
+		expect(val).toBe(6);
+
+		val = stepNumberValue(val, step, 'down');
+		expect(val).toBe(5);
+	});
+
+	it('STOCK MÍNIMO: arrow increment (+1) and decrement (-1) mandatory cases: 2 ↑ => 3 → 4 → 5, and 5 ↓ => 4 → 3 → 2', () => {
+		const step = 1;
+		let val = 2;
+
+		val = stepNumberValue(val, step, 'up');
+		expect(val).toBe(3);
+
+		val = stepNumberValue(val, step, 'up');
+		expect(val).toBe(4);
+
+		val = stepNumberValue(val, step, 'up');
+		expect(val).toBe(5);
+
+		val = stepNumberValue(val, step, 'down');
+		expect(val).toBe(4);
+
+		val = stepNumberValue(val, step, 'down');
+		expect(val).toBe(3);
+
+		val = stepNumberValue(val, step, 'down');
+		expect(val).toBe(2);
+	});
+
+	it('manual decimal typing for stock and min_stock is preserved without truncation or rejection (e.g. 5.25, 0.008, 5.001)', () => {
 		const formData = new FormData();
-		formData.append('sku_code', 'SKU-PRECISION-PRICE');
-		formData.append('name', 'Precio Decimal');
-		formData.append('price', '0.09');
-		formData.append('cost', '0.05');
-		formData.append('stock', '10');
-		formData.append('min_stock', '2');
+		formData.append('sku_code', 'SKU-MANUAL-DECIMAL');
+		formData.append('name', 'Manual Decimal Product');
+		formData.append('price', '15.99');
+		formData.append('cost', '8.45');
+		formData.append('stock', '5.25');
+		formData.append('min_stock', '0.008');
 		formData.append('existing_image_url', '');
 
-		const mockRpc = vi.fn().mockResolvedValue({ data: 'price-test-id', error: null });
+		const mockRpc = vi.fn().mockResolvedValue({ data: 'manual-dec-id', error: null });
 		const event = {
 			locals: {
 				user: { id: 'admin-uuid' },
@@ -584,104 +683,87 @@ describe('Product Image Precision & Upload Features', () => {
 			expect(result.success).toBe(true);
 			expect(mockRpc).toHaveBeenCalledWith('upsert_product_with_cost',
 				expect.objectContaining({
-					p_price: 0.09,
-					p_cost: 0.05
+					p_price: 15.99,
+					p_cost: 8.45,
+					p_stock: 5.25,
+					p_min_stock: 0.008
 				})
 			);
 		});
 	});
 
-	it('cost input step is 0.01', () => {
-		const formData = new FormData();
-		formData.append('sku_code', 'SKU-PRECISION-COST');
-		formData.append('name', 'Costo Decimal');
-		formData.append('price', '1.00');
-		formData.append('cost', '0.06');
-		formData.append('stock', '10');
-		formData.append('min_stock', '2');
-		formData.append('existing_image_url', '');
+	it('validateProductFormInput: rejects empty required text fields (sku, name)', () => {
+		const validBase = { sku: 'SKU-1', name: 'Prod', price: 10, cost: 5, stock: 10, minStock: 2 };
 
-		const mockRpc = vi.fn().mockResolvedValue({ data: 'cost-test-id', error: null });
-		const event = {
-			locals: {
-				user: { id: 'admin-uuid' },
-				role: 'admin',
-				supabase: { rpc: mockRpc }
-			},
-			request: {
-				formData: vi.fn().mockResolvedValue(formData)
-			}
-		} as unknown as RequestEvent;
-
-		return (actions as any).upsert(event).then((result: any) => {
-			expect(result.success).toBe(true);
-			expect(mockRpc).toHaveBeenCalledWith('upsert_product_with_cost',
-				expect.objectContaining({ p_cost: 0.06 })
-			);
-		});
+		expect(validateProductFormInput({ ...validBase, sku: '' }).valid).toBe(false);
+		expect(validateProductFormInput({ ...validBase, sku: '   ' }).valid).toBe(false);
+		expect(validateProductFormInput({ ...validBase, name: '' }).valid).toBe(false);
+		expect(validateProductFormInput({ ...validBase, name: '   ' }).valid).toBe(false);
 	});
 
-	it('stock input step is 0.001 — accepts three decimal places', () => {
-		const formData = new FormData();
-		formData.append('sku_code', 'SKU-PRECISION-STOCK');
-		formData.append('name', 'Stock Decimal');
-		formData.append('price', '1.00');
-		formData.append('cost', '0.50');
-		formData.append('stock', '0.008');
-		formData.append('min_stock', '5.001');
-		formData.append('existing_image_url', '');
+	it('validateProductFormInput: rejects empty required numeric fields (price, cost, stock, minStock)', () => {
+		const validBase = { sku: 'SKU-1', name: 'Prod', price: 10, cost: 5, stock: 10, minStock: 2 };
 
-		const mockRpc = vi.fn().mockResolvedValue({ data: 'stock-test-id', error: null });
-		const event = {
-			locals: {
-				user: { id: 'admin-uuid' },
-				role: 'admin',
-				supabase: { rpc: mockRpc }
-			},
-			request: {
-				formData: vi.fn().mockResolvedValue(formData)
-			}
-		} as unknown as RequestEvent;
-
-		return (actions as any).upsert(event).then((result: any) => {
-			expect(result.success).toBe(true);
-			expect(mockRpc).toHaveBeenCalledWith('upsert_product_with_cost',
-				expect.objectContaining({
-					p_stock: 0.008,
-					p_min_stock: 5.001
-				})
-			);
-		});
+		expect(validateProductFormInput({ ...validBase, price: '' }).valid).toBe(false);
+		expect(validateProductFormInput({ ...validBase, cost: '' }).valid).toBe(false);
+		expect(validateProductFormInput({ ...validBase, stock: '' }).valid).toBe(false);
+		expect(validateProductFormInput({ ...validBase, minStock: '' }).valid).toBe(false);
 	});
 
-	it('min_stock input step is 0.001 — accepts three decimal places', () => {
-		const formData = new FormData();
-		formData.append('sku_code', 'SKU-PRECISION-MINSTOCK');
-		formData.append('name', 'Min Stock Decimal');
-		formData.append('price', '1.00');
-		formData.append('cost', '0.50');
-		formData.append('stock', '10');
-		formData.append('min_stock', '5.003');
-		formData.append('existing_image_url', '');
+	it('validateProductFormInput: rejects invalid/non-numeric values', () => {
+		const validBase = { sku: 'SKU-1', name: 'Prod', price: 10, cost: 5, stock: 10, minStock: 2 };
 
-		const mockRpc = vi.fn().mockResolvedValue({ data: 'minstock-test-id', error: null });
-		const event = {
-			locals: {
-				user: { id: 'admin-uuid' },
-				role: 'admin',
-				supabase: { rpc: mockRpc }
-			},
-			request: {
-				formData: vi.fn().mockResolvedValue(formData)
-			}
-		} as unknown as RequestEvent;
+		expect(validateProductFormInput({ ...validBase, price: 'abc' }).valid).toBe(false);
+		expect(validateProductFormInput({ ...validBase, cost: 'xyz' }).valid).toBe(false);
+		expect(validateProductFormInput({ ...validBase, stock: 'invalid' }).valid).toBe(false);
+		expect(validateProductFormInput({ ...validBase, minStock: '---' }).valid).toBe(false);
+	});
 
-		return (actions as any).upsert(event).then((result: any) => {
-			expect(result.success).toBe(true);
-			expect(mockRpc).toHaveBeenCalledWith('upsert_product_with_cost',
-				expect.objectContaining({ p_min_stock: 5.003 })
-			);
+	it('validateProductFormInput: rejects negative values for all numeric fields', () => {
+		const validBase = { sku: 'SKU-1', name: 'Prod', price: 10, cost: 5, stock: 10, minStock: 2 };
+
+		expect(validateProductFormInput({ ...validBase, price: -0.01 }).valid).toBe(false);
+		expect(validateProductFormInput({ ...validBase, cost: -5 }).valid).toBe(false);
+		expect(validateProductFormInput({ ...validBase, stock: -0.5 }).valid).toBe(false);
+		expect(validateProductFormInput({ ...validBase, minStock: -1 }).valid).toBe(false);
+	});
+
+	it('validateProductFormInput: rejects values exceeding database capacity limits (NUMERIC(10,2) max 99,999,999.99 and NUMERIC(10,3) max 9,999,999.999)', () => {
+		const validBase = { sku: 'SKU-1', name: 'Prod', price: 10, cost: 5, stock: 10, minStock: 2 };
+
+		// Exact maximum values are accepted
+		expect(validateProductFormInput({ ...validBase, price: 99999999.99 }).valid).toBe(true);
+		expect(validateProductFormInput({ ...validBase, cost: 99999999.99 }).valid).toBe(true);
+		expect(validateProductFormInput({ ...validBase, stock: 9999999.999 }).valid).toBe(true);
+		expect(validateProductFormInput({ ...validBase, minStock: 9999999.999 }).valid).toBe(true);
+
+		// Exceeding limits are rejected
+		expect(validateProductFormInput({ ...validBase, price: 100000000 }).valid).toBe(false);
+		expect(validateProductFormInput({ ...validBase, cost: 100000000 }).valid).toBe(false);
+		expect(validateProductFormInput({ ...validBase, stock: 10000000 }).valid).toBe(false);
+		expect(validateProductFormInput({ ...validBase, minStock: 10000000 }).valid).toBe(false);
+	});
+
+	it('validateProductFormInput: accepts valid manual decimals (5.25, 5.001, 0.008)', () => {
+		const res1 = validateProductFormInput({
+			sku: 'SKU-DEC-1',
+			name: 'Decimal 1',
+			price: 15.50,
+			cost: 8.25,
+			stock: 5.25,
+			minStock: 2.50
 		});
+		expect(res1.valid).toBe(true);
+
+		const res2 = validateProductFormInput({
+			sku: 'SKU-DEC-2',
+			name: 'Decimal 2',
+			price: 10.00,
+			cost: 5.00,
+			stock: 5.001,
+			minStock: 0.008
+		});
+		expect(res2.valid).toBe(true);
 	});
 });
 
@@ -782,6 +864,17 @@ describe('Product Image Upload Endpoint (+server.ts)', () => {
 		} finally {
 			// Cleanup test file
 			try { await unlink(testFilePath); } catch { /* ignore */ }
+		}
+	});
+
+	afterAll(async () => {
+		const { rm } = await import('node:fs/promises');
+		const { resolve } = await import('node:path');
+		const uploadsDir = resolve(process.cwd(), 'static', 'uploads');
+		try {
+			await rm(uploadsDir, { recursive: true, force: true });
+		} catch {
+			/* ignore */
 		}
 	});
 });

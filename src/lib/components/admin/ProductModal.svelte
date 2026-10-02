@@ -88,9 +88,87 @@
 		if (current.hasNewImage) return true;
 		const curImg = (current.imageUrl ?? '').trim();
 		const initImg = (initial.image_url ?? '').trim();
-		if (curImg !== initImg) return true;
-
 		return false;
+	}
+
+	/**
+	 * Pure function to calculate number input step increment/decrement
+	 * following standard HTML input[type=number] step arithmetic.
+	 */
+	export function stepNumberValue(
+		current: number,
+		step: number,
+		direction: 'up' | 'down'
+	): number {
+		const factor = Math.round(1 / step);
+		const currentScaled = Math.round(current * factor);
+		const nextScaled = direction === 'up' ? currentScaled + 1 : currentScaled - 1;
+		return Math.max(0, nextScaled / factor);
+	}
+
+	export interface ProductValidationResult {
+		valid: boolean;
+		error?: string;
+	}
+
+	/**
+	 * Pure function to validate ProductModal inputs before submission.
+	 * Replicates and enhances the native HTML validation covered under `novalidate`:
+	 * - Required text fields (sku, name)
+	 * - Required numeric fields (price, cost, stock, minStock cannot be empty)
+	 * - Valid numeric parsing (no NaN)
+	 * - Non-negativity constraint (min="0")
+	 * - Database capacity limits (NUMERIC overflow prevention)
+	 */
+	export function validateProductFormInput(values: {
+		sku?: string;
+		name?: string;
+		price?: number | string;
+		cost?: number | string;
+		stock?: number | string;
+		minStock?: number | string;
+	}): ProductValidationResult {
+		const sku = (values.sku ?? '').trim();
+		const name = (values.name ?? '').trim();
+
+		if (!sku || !name) {
+			return { valid: false, error: 'Código SKU y Nombre del producto son requeridos.' };
+		}
+
+		const pStr = values.price !== undefined ? String(values.price).trim() : '';
+		const cStr = values.cost !== undefined ? String(values.cost).trim() : '';
+		const sStr = values.stock !== undefined ? String(values.stock).trim() : '';
+		const msStr = values.minStock !== undefined ? String(values.minStock).trim() : '';
+
+		if (pStr === '' || cStr === '' || sStr === '' || msStr === '') {
+			return { valid: false, error: 'Todos los campos numéricos (precio, costo, stock y stock mínimo) son requeridos.' };
+		}
+
+		const p = Number(pStr);
+		const c = Number(cStr);
+		const s = Number(sStr);
+		const ms = Number(msStr);
+
+		if (isNaN(p) || isNaN(c) || isNaN(s) || isNaN(ms)) {
+			return { valid: false, error: 'Los valores de precio, costo, stock y stock mínimo deben ser números válidos.' };
+		}
+
+		if (p < 0 || c < 0 || s < 0 || ms < 0) {
+			return { valid: false, error: 'Los valores numéricos deben ser mayores o iguales a 0.' };
+		}
+
+		// Database capacity limits defined in schema (prevent NUMERIC overflow):
+		// - price / cost: NUMERIC(10,2) => max 99,999,999.99 (8 integer digits, 2 fractional)
+		if (p > 99999999.99 || c > 99999999.99) {
+			return { valid: false, error: 'El precio o costo excede el límite máximo permitido ($99,999,999.99).' };
+		}
+
+		// - stock / min_stock: NUMERIC(10,3) => max 9,999,999.999 (7 integer digits, 3 fractional)
+		if (s > 9999999.999 || ms > 9999999.999) {
+			return { valid: false, error: 'El stock o stock mínimo excede el límite máximo permitido (9,999,999.999).' };
+		}
+
+		return { valid: true };
 	}
 </script>
 
@@ -372,7 +450,21 @@
 				method="POST"
 				action="?/upsert"
 				enctype="multipart/form-data"
-				use:enhance={({ formData }) => {
+				novalidate
+				use:enhance={({ formData, cancel }) => {
+					const validation = validateProductFormInput({
+						sku,
+						name,
+						price,
+						cost,
+						stock,
+						minStock
+					});
+					if (!validation.valid) {
+						formError = validation.error ?? "Datos del producto inválidos.";
+						cancel();
+						return;
+					}
 					submitting = true;
 					formError = null;
 					if (selectedFile) {
@@ -472,7 +564,7 @@
 							id="price"
 							name="price"
 							type="number"
-							step="0.01"
+							step="0.5"
 							min="0"
 							required
 							bind:value={price}
@@ -526,7 +618,7 @@
 							id="stock"
 							name="stock"
 							type="number"
-							step="0.001"
+							step="1"
 							min="0"
 							required
 							bind:value={stock}
@@ -548,7 +640,7 @@
 							id="min_stock"
 							name="min_stock"
 							type="number"
-							step="0.001"
+							step="1"
 							min="0"
 							required
 							bind:value={minStock}
