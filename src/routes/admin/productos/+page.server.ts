@@ -1,5 +1,23 @@
 import { fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
+import { writeFile, mkdir, unlink } from 'node:fs/promises';
+import { resolve, extname } from 'node:path';
+import { randomUUID } from 'node:crypto';
+
+/** Max upload size: 5 MB */
+const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
+
+/** Allowed MIME types and their canonical extensions */
+const ALLOWED_IMAGE_TYPES: Record<string, string> = {
+	'image/jpeg': '.jpg',
+	'image/png': '.png',
+	'image/gif': '.gif',
+	'image/webp': '.webp',
+	'image/svg+xml': '.svg'
+};
+
+/** Allowed file extensions (for double-validation) */
+const ALLOWED_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg']);
 
 /**
  * Server-side load and actions for /admin/productos (Product Catalog & Cost Management).
@@ -60,6 +78,55 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	};
 };
 
+/** Resolve the uploads directory for product images */
+function getUploadsDir(): string {
+	return resolve(process.cwd(), 'static', 'uploads', 'products');
+}
+
+/**
+ * Validate and save an uploaded image file.
+ * Returns the public URL path on success, or null if no file was uploaded.
+ * Throws a descriptive error string on validation failure.
+ */
+async function processImageUpload(file: File | null): Promise<string | null> {
+	if (!file || file.size === 0) {
+		return null;
+	}
+
+	// Validate MIME type
+	const canonicalExt = ALLOWED_IMAGE_TYPES[file.type];
+	if (!canonicalExt) {
+		throw `Tipo de imagen no soportado: ${file.type}. Formatos aceptados: JPG, PNG, GIF, WebP, SVG.`;
+	}
+
+	// Validate file size
+	if (file.size > MAX_IMAGE_SIZE) {
+		throw `La imagen excede el tamaño máximo permitido de 5 MB. Tamaño recibido: ${(file.size / 1024 / 1024).toFixed(1)} MB.`;
+	}
+
+	// Validate extension from original filename (defense in depth)
+	const originalExt = extname(file.name).toLowerCase();
+	if (!ALLOWED_EXTENSIONS.has(originalExt)) {
+		throw `Extensión de archivo no permitida: ${originalExt}. Extensiones aceptadas: .jpg, .jpeg, .png, .gif, .webp, .svg.`;
+	}
+
+	// Generate safe, unique filename using UUID
+	const safeFilename = `${randomUUID()}${canonicalExt}`;
+	const uploadsDir = getUploadsDir();
+
+	// Ensure directory exists
+	await mkdir(uploadsDir, { recursive: true });
+
+	const filePath = resolve(uploadsDir, safeFilename);
+
+	// Write file
+	const arrayBuffer = await file.arrayBuffer();
+	await writeFile(filePath, Buffer.from(arrayBuffer));
+
+	// Return the public URL path served by the endpoint
+	return `/uploads/products/${safeFilename}`;
+}
+
 export const actions: Actions = {
 	upsert: async ({ request, locals }) => {
 		// Strict server-side RBAC check
@@ -76,7 +143,10 @@ export const actions: Actions = {
 		const costRaw = formData.get('cost');
 		const stockRaw = formData.get('stock');
 		const minStockRaw = formData.get('min_stock');
-		const imageUrl = formData.get('image_url')?.toString().trim() || null;
+
+		// Handle image: either a File upload or a preserved existing URL
+		const imageFile = formData.get('image_file') as File | null;
+		const existingImageUrl = formData.get('existing_image_url')?.toString().trim() || null;
 
 		// Input validation
 		if (!skuCode || !name) {
@@ -101,6 +171,20 @@ export const actions: Actions = {
 			return fail(400, { error: 'El stock mínimo debe ser un número mayor o igual a 0.' });
 		}
 
+		// Process image upload
+		let imageUrl: string | null = existingImageUrl;
+		let newImagePath: string | null = null;
+
+		try {
+			const uploadedPath = await processImageUpload(imageFile);
+			if (uploadedPath) {
+				newImagePath = uploadedPath;
+				imageUrl = uploadedPath;
+			}
+		} catch (uploadError) {
+			return fail(400, { error: typeof uploadError === 'string' ? uploadError : 'Error al procesar la imagen.' });
+		}
+
 		// Atomic Upsert via RPC defined in SRS v8.0
 		const { data: productId, error } = await locals.supabase.rpc('upsert_product_with_cost', {
 			p_id: id,
@@ -115,6 +199,18 @@ export const actions: Actions = {
 		});
 
 		if (error) {
+			// If DB persistence failed and we wrote a new file, clean it up
+			if (newImagePath) {
+				try {
+					const uploadsDir = getUploadsDir();
+					const filename = newImagePath.split('/').pop();
+					if (filename) {
+						await unlink(resolve(uploadsDir, filename));
+					}
+				} catch {
+					// Best-effort cleanup; orphan is acceptable per requirements
+				}
+			}
 			return fail(400, { error: 'Error al guardar el producto. Verifique que el código SKU no esté duplicado.' });
 		}
 

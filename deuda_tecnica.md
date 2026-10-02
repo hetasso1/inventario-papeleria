@@ -109,12 +109,35 @@
     - Pruebas automatizadas: `npm run test` (114 passed, 1 skipped, 0 failed).
     - Validación manual en Chromium real contra PostgreSQL local: HTTP 200 sin filtros (22 ventas, $325.00), Hoy (0 ventas, sin ventas arrastradas del día anterior), 06/09 → 06/09 (15 ventas incluyendo nocturnas folios 21 y 22, $225.00), 06/09 → 07/09 (15 ventas) y 02/09 → 02/09 (7 ventas).
 
+- [x] ✅ ~~**FEATURE-PROD-IMG-PRECISION: Precisión Decimal, Drag & Drop y Almacenamiento Local de Imágenes en Productos**~~
+  - **Módulo:** Inventario / Admin UI (`/admin/productos`)
+  - **Descripción:** Implementación de mejoras operativas y de experiencia de usuario en el catálogo y modal de productos:
+    - **Precisión Decimal:** Flechas y valores numéricos con incrementos funcionales exactos: Precio de venta (`step="0.01"`), Costo unitario (`step="0.01"`), Stock actual (`step="0.001"`), Stock mínimo (`step="0.001"`).
+    - **Drag & Drop:** Reemplazo de campo textual de URL por zona Drag & Drop interactiva con selector de archivo, previsualización inmediata, reemplazo y cancelación de selección, y conservación de imagen existente al editar.
+    - **Persistencia Local y Endpoint:** Almacenamiento de archivos en `static/uploads/products/` con nombres únicos vía UUID (`/uploads/products/<uuid>.<ext>`), validados en servidor y cliente (MIME, tamaño máx. 5 MB, extensión y nombre seguro). Servido en runtime mediante el endpoint GET `src/routes/uploads/products/[filename]/+server.ts` con protección contra path traversal.
+    - **Visualización en Catálogo:** Miniaturas de producto ampliadas en un 75% lineal (de 40x40 px a 70x70 px) con placeholders e iconos proporcionales.
+    - **Invariantes Arquitectónicos:** Preservación de seguridad Admin-only, RLS en `product_costs`, RPC `upsert_product_with_cost`, Soft Delete (`is_active = false`) e idempotencia.
+  - **Archivos Autorizados:**
+    - `src/routes/admin/productos/+page.svelte`
+    - `src/routes/admin/productos/+page.server.ts`
+    - `src/lib/components/admin/ProductModal.svelte`
+    - `src/routes/uploads/products/[filename]/+server.ts`
+    - `tests/ui/admin_products.test.ts`
+    - `deuda_tecnica.md`
+  - **Evidencia de Resolución:**
+    - Pruebas focalizadas: `npx vitest run tests/ui/admin_products.test.ts` (28 passed, 0 failed).
+    - Compilación de producción: `npm run build` (exit code 0; warnings Svelte 5 limitados a los 2 preexistentes en login y productos; 0 warnings nuevos).
+    - Verificación de formato: `git diff --check` (exit code 0).
+    - Suite completa: `npm run test` (121 passed, 1 skipped, 7 failed debidos exclusivamente a indisponibilidad DNS/red de Supabase Cloud preexistente, desacoplada de la arquitectura local).
+    - Validación funcional E2E en Chromium real: ciclo completo de creación con Drag & Drop, preview, guardado, recarga, reemplazo de imagen, persistencia tras reinicio del servidor y soft delete.
+
 ---
 
 ## Sprint History
 
 | Sprint | Issue | Estado | Cambios Clave | Skill Actualizado |
 | :--- | :--- | :--- | :--- | :--- |
+| Post-Beta | FEATURE-PROD-IMG | ✅ Aprobado / Resuelto | Precisión numérica en /admin/productos (precio/costo step 0.01, stock/min_stock step 0.001), zona Drag & Drop con selector/preview/reemplazo/cancelación, persistencia local en static/uploads/products/ con URL /uploads/products/<uuid>.<ext>, endpoint GET seguro contra path traversal, validación MIME/tamaño/nombre, catálogo ampliado a 70x70 px (+75%), preservación de Admin-only/RLS/RPC/Soft Delete. Validación técnica: tests focalizados 28 passed, 0 failed; build exit code 0 con únicamente los 2 warnings Svelte conocidos; git diff --check exit 0; full suite con 121 passed, 1 skipped y 7 fallos preexistentes/externos de conectividad Supabase Cloud no atribuibles a la feature; validación funcional completa en Chromium. | N/A |
 | Post-Beta | ISSUE-010 | ✅ Resuelto | Hotfix de filtros de fechas en Historial (/admin/historial): Causa raíz: LocalQueryBuilder no soportaba .gte()/.lte(); el servidor de Historial invocaba esos métodos y producía HTTP 500; además se corrigió la semántica de límites de fecha para trabajar con días calendario completos mediante intervalo semiabierto [inicio del día, inicio del día siguiente). Evidencia de resolución: commit 57295357cb4da010e28742fd0a6ecb87938bca5b, npm run test: 114 passed, 1 skipped, 0 failed, y validación manual en Chromium contra PostgreSQL local (sin filtros: HTTP 200, 22 ventas; Hoy: 0 ventas sin arrastrar día anterior; 06/09 -> 06/09: 15 ventas incluyendo nocturnas folios 21 y 22; 06/09 -> 07/09: 15 ventas; 02/09 -> 02/09: 7 ventas). | N/A |
 | 21 | BETA-PREP-AUDIT | ~~⏳ Pendiente de revisión~~ / ✅ Aprobado | Auditoría integral del sistema contra SRS v8.0 / v8.1 para entrega Beta: resolución de discrepancia de migraciones en documentación de despliegue local (incorporación de migración incremental 20260906000000_enforce_integer_quantities_in_pos.sql en README.md y ARQUITECTURA.md), alineación de métricas de pruebas a 106 passed en toda la documentación, corrección de accesibilidad (aria-label) en modal de detalle de historial, elaboración de la Guía de Prueba Manual para evaluación Beta con credenciales canónicas y preservación estricta de invariantes RLS, RPC, Soft Delete y auditoría. Cierre administrativo: validación técnica aprobada (106 passed, 1 skipped, 0 failed; build exit code 0 con 2 warnings Svelte 5 no bloqueantes documentados en login y productos; git diff --check exit 0; commit 88a84d0). | N/A |
 | 20 | MEJORAS-POS-STOCK-FOLIO | ✅ Aprobado | Control preventivo de existencias en mostrador /caja (visualización de stock disponible en catálogo rápido, bloqueo de adición y etiqueta 'Agotado' con stock <= 0, advertencia de bajo stock si stock <= min_stock, cantidad mínima de 1 y tope al stock disponible en carrito CartTable con botón '+' deshabilitado al alcanzar el límite, y validación preventiva en Server Action checkout preservando carrito e idempotency_key ante rechazo) y exposición del folio numérico oficial de salida (stock_outlets.folio) en historial de ventas y modales de detalle y cancelación sin alterar contratos UUID ni la autoridad transaccional de la RPC process_stock_outlet. | N/A |

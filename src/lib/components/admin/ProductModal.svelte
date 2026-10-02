@@ -21,6 +21,8 @@
 		stock?: number | string;
 		minStock?: number | string;
 		imageUrl?: string;
+		/** True if a new file has been selected for upload */
+		hasNewImage?: boolean;
 	}
 
 	/**
@@ -39,6 +41,7 @@
 			const stock = Number(current.stock ?? 0);
 			const minStock = current.minStock !== undefined && current.minStock !== '' ? Number(current.minStock) : 5;
 			const img = (current.imageUrl ?? '').trim();
+			const hasNewImg = current.hasNewImage ?? false;
 
 			return (
 				sku !== '' ||
@@ -48,7 +51,8 @@
 				cost !== 0 ||
 				stock !== 0 ||
 				minStock !== 5 ||
-				img !== ''
+				img !== '' ||
+				hasNewImg
 			);
 		}
 
@@ -80,6 +84,8 @@
 		const initMinStock = Number(initial.min_stock ?? 5);
 		if (curMinStock !== initMinStock) return true;
 
+		// Image dirty: either a new file was selected, or the URL changed
+		if (current.hasNewImage) return true;
 		const curImg = (current.imageUrl ?? '').trim();
 		const initImg = (initial.image_url ?? '').trim();
 		if (curImg !== initImg) return true;
@@ -116,7 +122,18 @@
 	let cost = $state<number | string>(0);
 	let stock = $state<number | string>(0);
 	let minStock = $state<number | string>(5);
-	let imageUrl = $state("");
+
+	// Image state
+	let existingImageUrl = $state("");
+	let selectedFile = $state<File | null>(null);
+	let previewUrl = $state<string | null>(null);
+	let isDragging = $state(false);
+	let imageError = $state<string | null>(null);
+
+	/** Max upload size: 5 MB */
+	const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
+	const ACCEPTED_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'];
+	const ACCEPTED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg'];
 
 	let isDirty = $derived(
 		isProductFormDirty(product, {
@@ -127,7 +144,8 @@
 			cost,
 			stock,
 			minStock,
-			imageUrl
+			imageUrl: existingImageUrl,
+			hasNewImage: selectedFile !== null
 		})
 	);
 
@@ -140,7 +158,7 @@
 			cost = product.cost ?? 0;
 			stock = product.stock ?? 0;
 			minStock = product.min_stock ?? 5;
-			imageUrl = product.image_url ?? "";
+			existingImageUrl = product.image_url ?? "";
 		} else {
 			sku = "";
 			name = "";
@@ -149,11 +167,84 @@
 			cost = 0;
 			stock = 0;
 			minStock = 5;
-			imageUrl = "";
+			existingImageUrl = "";
 		}
+		selectedFile = null;
+		previewUrl = null;
+		imageError = null;
 		formError = null;
 		showUnsavedConfirm = false;
 	});
+
+	function validateImageFile(file: File): string | null {
+		if (!ACCEPTED_TYPES.includes(file.type)) {
+			return `Tipo de archivo no soportado: ${file.type}. Formatos aceptados: JPG, PNG, GIF, WebP, SVG.`;
+		}
+		if (file.size > MAX_IMAGE_SIZE) {
+			return `La imagen excede 5 MB. Tamaño: ${(file.size / 1024 / 1024).toFixed(1)} MB.`;
+		}
+		const ext = '.' + file.name.split('.').pop()?.toLowerCase();
+		if (!ACCEPTED_EXTENSIONS.includes(ext)) {
+			return `Extensión no permitida: ${ext}. Extensiones aceptadas: ${ACCEPTED_EXTENSIONS.join(', ')}.`;
+		}
+		return null;
+	}
+
+	function handleFileSelect(file: File) {
+		const error = validateImageFile(file);
+		if (error) {
+			imageError = error;
+			return;
+		}
+		imageError = null;
+		selectedFile = file;
+		// Create preview URL
+		if (previewUrl) {
+			URL.revokeObjectURL(previewUrl);
+		}
+		previewUrl = URL.createObjectURL(file);
+	}
+
+	function handleDropzoneDrop(e: DragEvent) {
+		e.preventDefault();
+		isDragging = false;
+		const file = e.dataTransfer?.files?.[0];
+		if (file) {
+			handleFileSelect(file);
+		}
+	}
+
+	function handleDropzoneDragOver(e: DragEvent) {
+		e.preventDefault();
+		isDragging = true;
+	}
+
+	function handleDropzoneDragLeave() {
+		isDragging = false;
+	}
+
+	function handleFileInputChange(e: Event) {
+		const input = e.target as HTMLInputElement;
+		const file = input.files?.[0];
+		if (file) {
+			handleFileSelect(file);
+		}
+		// Reset input so the same file can be re-selected
+		input.value = '';
+	}
+
+	function removeSelectedImage() {
+		if (previewUrl) {
+			URL.revokeObjectURL(previewUrl);
+		}
+		selectedFile = null;
+		previewUrl = null;
+		imageError = null;
+		existingImageUrl = "";
+	}
+
+	/** The image src to display: preview > existing */
+	let displayImageSrc = $derived(previewUrl ?? (existingImageUrl || null));
 
 	function handleBackdropClick() {
 		if (showUnsavedConfirm) {
@@ -280,9 +371,13 @@
 			<form
 				method="POST"
 				action="?/upsert"
-				use:enhance={() => {
+				enctype="multipart/form-data"
+				use:enhance={({ formData }) => {
 					submitting = true;
 					formError = null;
+					if (selectedFile) {
+						formData.set('image_file', selectedFile);
+					}
 					return async ({ result, update }) => {
 						submitting = false;
 						if (result.type === "failure") {
@@ -300,6 +395,9 @@
 				{#if isEditing && product?.id}
 					<input type="hidden" name="id" value={product.id} />
 				{/if}
+
+				<!-- Preserve existing image URL if no new file selected -->
+				<input type="hidden" name="existing_image_url" value={selectedFile ? '' : existingImageUrl} />
 
 				<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
 					<!-- SKU Code -->
@@ -459,22 +557,117 @@
 					</div>
 				</div>
 
-				<!-- Image URL -->
+				<!-- Image Drag & Drop Zone -->
 				<div>
-					<label
-						for="image_url"
+					<span
 						class="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-1"
 					>
-						URL de Imagen
-					</label>
-					<input
-						id="image_url"
-						name="image_url"
-						type="url"
-						bind:value={imageUrl}
-						placeholder="https://ejemplo.com/producto.jpg"
-						class="w-full rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm text-slate-900 placeholder-slate-400 shadow-sm focus:border-black focus:outline-none focus:ring-1 focus:ring-black"
-					/>
+						Imagen del Producto
+						<span class="text-slate-400 font-normal normal-case">(Máx. 5 MB — JPG, PNG, GIF, WebP, SVG)</span>
+					</span>
+
+					{#if displayImageSrc}
+						<!-- Preview with replace/remove controls -->
+						<div class="relative rounded-lg border border-slate-200 bg-slate-50 p-3">
+							<div class="flex items-center gap-4">
+								<div class="flex-shrink-0 w-24 h-24 rounded-lg overflow-hidden bg-white border border-slate-200">
+									<img
+										src={displayImageSrc}
+										alt="Preview del producto"
+										class="w-full h-full object-contain"
+									/>
+								</div>
+								<div class="flex-1 min-w-0">
+									{#if selectedFile}
+										<p class="text-sm font-medium text-slate-900 truncate">{selectedFile.name}</p>
+										<p class="text-xs text-slate-500">{(selectedFile.size / 1024).toFixed(1)} KB</p>
+									{:else}
+										<p class="text-sm font-medium text-slate-700">Imagen actual</p>
+										<p class="text-xs text-slate-500 truncate">{existingImageUrl}</p>
+									{/if}
+									<div class="flex gap-2 mt-2">
+										<label
+											class="inline-flex items-center gap-1 rounded-md bg-white border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
+										>
+											<svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+											</svg>
+											Reemplazar
+											<input
+												type="file"
+												accept={ACCEPTED_TYPES.join(',')}
+												onchange={handleFileInputChange}
+												class="hidden"
+											/>
+										</label>
+										<button
+											type="button"
+											onclick={removeSelectedImage}
+											class="inline-flex items-center gap-1 rounded-md bg-red-50 border border-red-200 px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-100 transition-colors cursor-pointer"
+										>
+											<svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+											</svg>
+											Quitar
+										</button>
+									</div>
+								</div>
+							</div>
+						</div>
+					{:else}
+						<!-- Empty dropzone -->
+						<div
+							id="image-dropzone"
+							role="button"
+							tabindex="0"
+							ondrop={handleDropzoneDrop}
+							ondragover={handleDropzoneDragOver}
+							ondragleave={handleDropzoneDragLeave}
+							class="relative rounded-lg border-2 border-dashed transition-all cursor-pointer
+								{isDragging
+									? 'border-black bg-slate-100'
+									: 'border-slate-300 bg-slate-50 hover:border-slate-400 hover:bg-slate-100'}"
+						>
+							<label class="flex flex-col items-center justify-center py-8 px-4 cursor-pointer">
+								<svg
+									class="h-10 w-10 mb-2 {isDragging ? 'text-black' : 'text-slate-400'}"
+									fill="none"
+									viewBox="0 0 24 24"
+									stroke="currentColor"
+								>
+									<path
+										stroke-linecap="round"
+										stroke-linejoin="round"
+										stroke-width="1.5"
+										d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+									/>
+								</svg>
+								<p class="text-sm font-medium text-slate-700">
+									{isDragging ? 'Suelta la imagen aquí' : 'Arrastra una imagen aquí'}
+								</p>
+								<p class="text-xs text-slate-500 mt-1">
+									o <span class="text-black font-medium underline">haz clic para seleccionar</span>
+								</p>
+								<input
+									id="image_file"
+									name="image_file"
+									type="file"
+									accept={ACCEPTED_TYPES.join(',')}
+									onchange={handleFileInputChange}
+									class="hidden"
+								/>
+							</label>
+						</div>
+					{/if}
+
+					{#if imageError}
+						<p class="mt-1.5 text-xs text-red-600 flex items-center gap-1">
+							<svg class="h-3.5 w-3.5 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
+								<path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.28 7.22a.75.75 0 00-1.06 1.06L8.94 10l-1.72 1.72a.75.75 0 101.06 1.06L10 11.06l1.72 1.72a.75.75 0 101.06-1.06L11.06 10l1.72-1.72a.75.75 0 00-1.06-1.06L10 8.94 8.28 7.22z" clip-rule="evenodd" />
+							</svg>
+							{imageError}
+						</p>
+					{/if}
 				</div>
 
 				<!-- Actions -->

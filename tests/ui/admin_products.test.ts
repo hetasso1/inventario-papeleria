@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { load, actions } from '../../src/routes/admin/productos/+page.server';
 import { GET as exportProducts } from '../../src/routes/admin/productos/export/+server';
+import { GET as serveImage } from '../../src/routes/uploads/products/[filename]/+server';
 import { isProductFormDirty } from '../../src/lib/components/admin/ProductModal.svelte';
 import type { RequestEvent } from '@sveltejs/kit';
 
@@ -144,7 +145,7 @@ describe('ISSUE-003: Admin Products Module (+page.server.ts)', () => {
 		formData.append('cost', '3.20');
 		formData.append('stock', '40');
 		formData.append('min_stock', '5');
-		formData.append('image_url', 'http://img.com/borrador.png');
+		formData.append('existing_image_url', '');
 
 		mockSupabase.rpc.mockResolvedValue({ data: 'new-product-uuid', error: null });
 
@@ -162,7 +163,7 @@ describe('ISSUE-003: Admin Products Module (+page.server.ts)', () => {
 			p_cost: 3.2,
 			p_stock: 40,
 			p_min_stock: 5,
-			p_image_url: 'http://img.com/borrador.png'
+			p_image_url: null
 		});
 	});
 
@@ -175,6 +176,7 @@ describe('ISSUE-003: Admin Products Module (+page.server.ts)', () => {
 		formData.append('cost', '18.00');
 		formData.append('stock', '25');
 		formData.append('min_stock', '3');
+		formData.append('existing_image_url', '');
 
 		mockSupabase.rpc.mockResolvedValue({ data: 'prod-uuid-1234', error: null });
 
@@ -270,6 +272,109 @@ describe('ISSUE-003: Admin Products Module (+page.server.ts)', () => {
 		expect(result.status).toBe(403);
 		expect(result.data.error).toContain('No autorizado');
 		expect(mockSupabase.from).not.toHaveBeenCalled();
+	});
+
+	it('action upsert preserves existing image URL when no new file is uploaded', async () => {
+		const formData = new FormData();
+		formData.append('sku_code', 'SKU-IMG-KEEP');
+		formData.append('name', 'Producto con Imagen');
+		formData.append('price', '10.00');
+		formData.append('cost', '5.00');
+		formData.append('stock', '10');
+		formData.append('min_stock', '2');
+		formData.append('existing_image_url', '/uploads/products/existing-image.jpg');
+		// No image_file appended — simulates editing without changing image
+
+		mockSupabase.rpc.mockResolvedValue({ data: 'prod-keep-img', error: null });
+
+		const event = createMockEvent({ role: 'admin', formData });
+		const result: any = await (actions as any).upsert(event);
+
+		expect(result.success).toBe(true);
+		expect(mockSupabase.rpc).toHaveBeenCalledWith('upsert_product_with_cost',
+			expect.objectContaining({
+				p_image_url: '/uploads/products/existing-image.jpg'
+			})
+		);
+	});
+
+	it('action upsert rejects non-image file uploads with clear error', async () => {
+		const formData = new FormData();
+		formData.append('sku_code', 'SKU-BAD-FILE');
+		formData.append('name', 'Producto con Archivo Malo');
+		formData.append('price', '10.00');
+		formData.append('cost', '5.00');
+		formData.append('stock', '10');
+		formData.append('min_stock', '2');
+		formData.append('existing_image_url', '');
+
+		// Create a fake text file
+		const fakeFile = new File(['hello world'], 'malware.exe', { type: 'application/x-msdownload' });
+		formData.append('image_file', fakeFile);
+
+		const event = createMockEvent({ role: 'admin', formData });
+		const result: any = await (actions as any).upsert(event);
+
+		expect(result.status).toBe(400);
+		expect(result.data.error).toContain('Tipo de imagen no soportado');
+		expect(mockSupabase.rpc).not.toHaveBeenCalled();
+	});
+
+	it('action upsert accepts valid image file and generates /uploads/products/ path', async () => {
+		const formData = new FormData();
+		formData.append('sku_code', 'SKU-IMG-NEW');
+		formData.append('name', 'Producto con Imagen Nueva');
+		formData.append('price', '15.00');
+		formData.append('cost', '7.50');
+		formData.append('stock', '20');
+		formData.append('min_stock', '3');
+		formData.append('existing_image_url', '');
+
+		// Create a valid PNG file (minimal valid PNG header)
+		const pngHeader = new Uint8Array([
+			0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, // PNG signature
+			0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52  // IHDR chunk start
+		]);
+		const validImage = new File([pngHeader], 'product-photo.png', { type: 'image/png' });
+		formData.append('image_file', validImage);
+
+		mockSupabase.rpc.mockResolvedValue({ data: 'prod-new-img', error: null });
+
+		const event = createMockEvent({ role: 'admin', formData });
+		const result: any = await (actions as any).upsert(event);
+
+		expect(result.success).toBe(true);
+		// Verify the RPC received a path matching the /uploads/products/ pattern
+		const rpcCall = mockSupabase.rpc.mock.calls[0];
+		expect(rpcCall[0]).toBe('upsert_product_with_cost');
+		const imageUrl = rpcCall[1].p_image_url;
+		expect(imageUrl).toMatch(/^\/uploads\/products\/[0-9a-f-]+\.png$/);
+	});
+
+	it('action upsert replaces image — new path differs from existing', async () => {
+		const formData = new FormData();
+		formData.append('sku_code', 'SKU-IMG-REPLACE');
+		formData.append('name', 'Producto Reemplazo');
+		formData.append('price', '20.00');
+		formData.append('cost', '10.00');
+		formData.append('stock', '15');
+		formData.append('min_stock', '3');
+		formData.append('existing_image_url', '/uploads/products/old-image-uuid.jpg');
+
+		const validImage = new File([new Uint8Array(100)], 'new-photo.jpg', { type: 'image/jpeg' });
+		formData.append('image_file', validImage);
+
+		mockSupabase.rpc.mockResolvedValue({ data: 'prod-replace-img', error: null });
+
+		const event = createMockEvent({ role: 'admin', formData });
+		const result: any = await (actions as any).upsert(event);
+
+		expect(result.success).toBe(true);
+		const rpcCall = mockSupabase.rpc.mock.calls[0];
+		const newImageUrl = rpcCall[1].p_image_url;
+		// The new path should be different from the old one
+		expect(newImageUrl).not.toBe('/uploads/products/old-image-uuid.jpg');
+		expect(newImageUrl).toMatch(/^\/uploads\/products\/[0-9a-f-]+\.jpg$/);
 	});
 });
 
@@ -398,6 +503,8 @@ describe('SPRINT 19: ProductModal Dirty State & Protection (ProductModal.svelte)
 		expect(isProductFormDirty(null, { stock: 10 })).toBe(true);
 		expect(isProductFormDirty(null, { minStock: 2 })).toBe(true);
 		expect(isProductFormDirty(null, { imageUrl: 'http://image.png' })).toBe(true);
+		// Dirty with new image selected
+		expect(isProductFormDirty(null, { hasNewImage: true })).toBe(true);
 	});
 
 	it('detects dirty state when editing an existing product', () => {
@@ -433,5 +540,248 @@ describe('SPRINT 19: ProductModal Dirty State & Protection (ProductModal.svelte)
 		expect(isProductFormDirty(existingProduct, { name: 'Cuaderno Rayado' })).toBe(true);
 		expect(isProductFormDirty(existingProduct, { price: 30.0 })).toBe(true);
 		expect(isProductFormDirty(existingProduct, { stock: 45 })).toBe(true);
+		// Dirty when image is being replaced
+		expect(isProductFormDirty(existingProduct, {
+			sku: 'SKU-001',
+			name: 'Cuaderno',
+			description: '100 hojas',
+			price: 25.0,
+			cost: 15.0,
+			stock: 50,
+			minStock: 5,
+			imageUrl: 'http://cuaderno.png',
+			hasNewImage: true
+		})).toBe(true);
+	});
+});
+
+describe('Product Image Precision & Upload Features', () => {
+	it('price input step is 0.01', () => {
+		// Verification: the step attribute in the ProductModal form for price is step="0.01"
+		// This test validates the server-side does NOT reject decimal prices with 2 decimal places
+		const formData = new FormData();
+		formData.append('sku_code', 'SKU-PRECISION-PRICE');
+		formData.append('name', 'Precio Decimal');
+		formData.append('price', '0.09');
+		formData.append('cost', '0.05');
+		formData.append('stock', '10');
+		formData.append('min_stock', '2');
+		formData.append('existing_image_url', '');
+
+		const mockRpc = vi.fn().mockResolvedValue({ data: 'price-test-id', error: null });
+		const event = {
+			locals: {
+				user: { id: 'admin-uuid' },
+				role: 'admin',
+				supabase: { rpc: mockRpc }
+			},
+			request: {
+				formData: vi.fn().mockResolvedValue(formData)
+			}
+		} as unknown as RequestEvent;
+
+		return (actions as any).upsert(event).then((result: any) => {
+			expect(result.success).toBe(true);
+			expect(mockRpc).toHaveBeenCalledWith('upsert_product_with_cost',
+				expect.objectContaining({
+					p_price: 0.09,
+					p_cost: 0.05
+				})
+			);
+		});
+	});
+
+	it('cost input step is 0.01', () => {
+		const formData = new FormData();
+		formData.append('sku_code', 'SKU-PRECISION-COST');
+		formData.append('name', 'Costo Decimal');
+		formData.append('price', '1.00');
+		formData.append('cost', '0.06');
+		formData.append('stock', '10');
+		formData.append('min_stock', '2');
+		formData.append('existing_image_url', '');
+
+		const mockRpc = vi.fn().mockResolvedValue({ data: 'cost-test-id', error: null });
+		const event = {
+			locals: {
+				user: { id: 'admin-uuid' },
+				role: 'admin',
+				supabase: { rpc: mockRpc }
+			},
+			request: {
+				formData: vi.fn().mockResolvedValue(formData)
+			}
+		} as unknown as RequestEvent;
+
+		return (actions as any).upsert(event).then((result: any) => {
+			expect(result.success).toBe(true);
+			expect(mockRpc).toHaveBeenCalledWith('upsert_product_with_cost',
+				expect.objectContaining({ p_cost: 0.06 })
+			);
+		});
+	});
+
+	it('stock input step is 0.001 — accepts three decimal places', () => {
+		const formData = new FormData();
+		formData.append('sku_code', 'SKU-PRECISION-STOCK');
+		formData.append('name', 'Stock Decimal');
+		formData.append('price', '1.00');
+		formData.append('cost', '0.50');
+		formData.append('stock', '0.008');
+		formData.append('min_stock', '5.001');
+		formData.append('existing_image_url', '');
+
+		const mockRpc = vi.fn().mockResolvedValue({ data: 'stock-test-id', error: null });
+		const event = {
+			locals: {
+				user: { id: 'admin-uuid' },
+				role: 'admin',
+				supabase: { rpc: mockRpc }
+			},
+			request: {
+				formData: vi.fn().mockResolvedValue(formData)
+			}
+		} as unknown as RequestEvent;
+
+		return (actions as any).upsert(event).then((result: any) => {
+			expect(result.success).toBe(true);
+			expect(mockRpc).toHaveBeenCalledWith('upsert_product_with_cost',
+				expect.objectContaining({
+					p_stock: 0.008,
+					p_min_stock: 5.001
+				})
+			);
+		});
+	});
+
+	it('min_stock input step is 0.001 — accepts three decimal places', () => {
+		const formData = new FormData();
+		formData.append('sku_code', 'SKU-PRECISION-MINSTOCK');
+		formData.append('name', 'Min Stock Decimal');
+		formData.append('price', '1.00');
+		formData.append('cost', '0.50');
+		formData.append('stock', '10');
+		formData.append('min_stock', '5.003');
+		formData.append('existing_image_url', '');
+
+		const mockRpc = vi.fn().mockResolvedValue({ data: 'minstock-test-id', error: null });
+		const event = {
+			locals: {
+				user: { id: 'admin-uuid' },
+				role: 'admin',
+				supabase: { rpc: mockRpc }
+			},
+			request: {
+				formData: vi.fn().mockResolvedValue(formData)
+			}
+		} as unknown as RequestEvent;
+
+		return (actions as any).upsert(event).then((result: any) => {
+			expect(result.success).toBe(true);
+			expect(mockRpc).toHaveBeenCalledWith('upsert_product_with_cost',
+				expect.objectContaining({ p_min_stock: 5.003 })
+			);
+		});
+	});
+});
+
+describe('Product Image Upload Endpoint (+server.ts)', () => {
+	it('returns 404 for a non-existent image', async () => {
+		const event = {
+			params: { filename: 'does-not-exist-abc123.png' }
+		} as unknown as RequestEvent;
+
+		try {
+			await serveImage(event);
+			expect.unreachable('Should have thrown a 404 error');
+		} catch (err: any) {
+			expect(err.status).toBe(404);
+		}
+	});
+
+	it('rejects path traversal attempts with dot-dot sequences', async () => {
+		const event = {
+			params: { filename: '..%2F..%2Fetc%2Fpasswd' }
+		} as unknown as RequestEvent;
+
+		try {
+			await serveImage(event);
+			expect.unreachable('Should have thrown an error');
+		} catch (err: any) {
+			// Should be rejected — either 400 or 404 is acceptable
+			expect([400, 404]).toContain(err.status);
+		}
+	});
+
+	it('rejects filenames with directory separators', async () => {
+		const event = {
+			params: { filename: 'subdir/secret.png' }
+		} as unknown as RequestEvent;
+
+		try {
+			await serveImage(event);
+			expect.unreachable('Should have thrown an error');
+		} catch (err: any) {
+			expect(err.status).toBe(400);
+		}
+	});
+
+	it('rejects non-image file extensions', async () => {
+		const event = {
+			params: { filename: 'malicious.exe' }
+		} as unknown as RequestEvent;
+
+		try {
+			await serveImage(event);
+			expect.unreachable('Should have thrown an error');
+		} catch (err: any) {
+			expect(err.status).toBe(400);
+		}
+	});
+
+	it('rejects empty filename', async () => {
+		const event = {
+			params: { filename: '' }
+		} as unknown as RequestEvent;
+
+		try {
+			await serveImage(event);
+			expect.unreachable('Should have thrown an error');
+		} catch (err: any) {
+			expect(err.status).toBe(400);
+		}
+	});
+
+	it('serves an existing image file with correct content-type', async () => {
+		// Create a test image file temporarily
+		const { writeFile, mkdir, unlink } = await import('node:fs/promises');
+		const { resolve } = await import('node:path');
+		const uploadsDir = resolve(process.cwd(), 'static', 'uploads', 'products');
+		const testFilename = '__vitest_test_image__.png';
+		const testFilePath = resolve(uploadsDir, testFilename);
+
+		try {
+			await mkdir(uploadsDir, { recursive: true });
+			// Write a minimal valid-ish PNG (just enough for the test)
+			const pngBytes = new Uint8Array([
+				0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A
+			]);
+			await writeFile(testFilePath, pngBytes);
+
+			const event = {
+				params: { filename: testFilename }
+			} as unknown as RequestEvent;
+
+			const response = await serveImage(event);
+			expect(response.status).toBe(200);
+			expect(response.headers.get('Content-Type')).toBe('image/png');
+			expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff');
+
+			const body = await response.arrayBuffer();
+			expect(body.byteLength).toBe(8);
+		} finally {
+			// Cleanup test file
+			try { await unlink(testFilePath); } catch { /* ignore */ }
+		}
 	});
 });

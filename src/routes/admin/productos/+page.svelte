@@ -257,7 +257,8 @@
 									<td class="px-4 py-3.5">
 										<div class="flex items-center gap-3">
 											<div
-												class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-slate-100 border border-slate-200 overflow-hidden text-slate-400"
+												class="flex flex-shrink-0 items-center justify-center rounded-lg bg-slate-100 border border-slate-200 overflow-hidden text-slate-400"
+										style="width: 70px; height: 70px;"
 											>
 												{#if product.image_url}
 													<img
@@ -267,7 +268,7 @@
 													/>
 												{:else}
 													<svg
-														class="h-5 w-5 text-slate-400"
+														class="h-8 w-8 text-slate-400"
 														fill="none"
 														viewBox="0 0 24 24"
 														stroke="currentColor"
