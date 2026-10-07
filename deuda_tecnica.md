@@ -158,12 +158,44 @@
     - Verificación de formato: `git diff --check` (exit code 0).
     - Carrito aislado por usuario + sesión; efectivo/tarjeta/mixto; cálculo de cambio; persistencia financiera; idempotencia/RLS preservados.
 
+- [x] ✅ ~~**FEATURE-ADMIN-USERS: Gestión de Usuarios para Admin, Multi-Cajero y Baja Lógica**~~ (~~⏳ Pendiente de revisión~~ / ✅ Aprobado)
+  - **Módulo:** Admin UI & Auth Backend (`/admin/usuarios`, `auth.users`, `src/lib/supabase/server.ts`)
+  - **Descripción:** Implementación de administración centralizada de múltiples usuarios Cajero exclusiva para Admin:
+    - **Modelo de Identidad Unificado:** La fuente de identidad continúa siendo exclusivamente `auth.users` sin crear una tabla de usuarios paralela. Migración incremental `20261007000000_add_user_management.sql` incorporando `username` (VARCHAR(64) UNIQUE NOT NULL), `display_name` (VARCHAR(255) NOT NULL) e `is_active` (BOOLEAN NOT NULL DEFAULT true). Backfill de usuarios existentes asegurando compatibilidad total sin romper logins previos.
+    - **Baja Lógica Estricta:** Implementación de baja lógica mediante `is_active`. Semántica estricta: usuario existente → true, usuario nuevo → true por defecto, usuario desactivado → false; `NULL` no admitido (garantizado con constraint `NOT NULL`). La autenticación en `src/lib/supabase/server.ts` exige exclusivamente `is_active = true`. Un usuario desactivado no puede autenticarse ni iniciar sesión.
+    - **Protección de Roles & Prevención de Segundo Admin:** Acceso a `/admin/usuarios` exclusivo para Admin en Server Load y Actions (RBAC con redirección 303 a `/caja` para cajeros). El rol para usuarios creados queda imperativamente fijo en `cajero` en `raw_app_meta_data.role`; no se admite rol enviado desde cliente. Se bloquea la creación de un segundo Admin y la desactivación del único Admin.
+    - **Seguridad Criptográfica e Integridad Referencial:** Hasheo con PBKDF2-HMAC-SHA512 (100,000 iteraciones, salt de 16 bytes, clave de 64 bytes) idéntico al estándar del sistema. Nunca se expone `encrypted_password`. Se prohíbe la eliminación física de usuarios para preservar las claves foráneas históricas de ventas (`stock_outlets.user_id`) y auditoría.
+  - **Archivos Autorizados:**
+    - `src/routes/admin/usuarios/+page.svelte`
+    - `src/routes/admin/usuarios/+page.server.ts`
+    - `supabase/migrations/20261007000000_add_user_management.sql`
+    - `src/lib/supabase/server.ts`
+    - `tests/auth/user_management.test.ts`
+    - `tests/e2e/pos_critical_flow.spec.ts`
+    - `deuda_tecnica.md`
+  - **Evidencia de Resolución:**
+    - 16 tests específicos de gestión de usuarios passed, 0 failed.
+    - 174 tests locales passed, 0 local failed, 1 skipped.
+    - 7 fallos Cloud conocidos de ISSUE-007 por ENOTFOUND, separados de los resultados locales.
+    - Playwright Gestión de Usuarios: 1 passed, 0 failed.
+    - npm run build: exit 0.
+    - git diff --check: exit 0.
+    - migración 20261007000000_add_user_management.sql.
+    - is_active NOT NULL DEFAULT true.
+    - login exige is_active = true.
+    - múltiples cajeros soportados.
+    - segundo Admin bloqueado.
+    - usuario desactivado no puede autenticarse.
+    - usuarios no se eliminan físicamente.
+    - historial conserva stock_outlets.user_id.
+
 ---
 
 ## Sprint History
 
 | Sprint | Issue | Estado | Cambios Clave | Skill Actualizado |
 | :--- | :--- | :--- | :--- | :--- |
+| 23 | FEATURE-ADMIN-USERS | ~~⏳ Pendiente de revisión~~ / ✅ Aprobado | Administración de múltiples usuarios Cajero en /admin/usuarios exclusiva para Admin: identidad única en auth.users sin tabla paralela, columnas username (único), display_name e is_active NOT NULL DEFAULT true; autenticación estricta con is_active = true en server.ts; prevención de segundo Admin en UI, Server Actions y DB; bloqueo de desactivación del único Admin; contraseñas con PBKDF2-HMAC-SHA512 sin exponer hashes; preservación física de usuarios y trazabilidad histórica de stock_outlets.user_id. Evidencia: 16 tests específicos passed, 0 failed; 174 tests locales passed, 0 failed, 1 skipped; 7 fallos Cloud DNS conocidos de ISSUE-007; Playwright Gestión de Usuarios 1 passed, 0 failed; build exit 0; git diff --check exit 0. | N/A |
 | 22 | FEATURE-POS-PAYMENT-CART | ~~⏳ Pendiente de revisión~~ / ✅ Aprobado | Flujo de cobro robusto en /caja: persistencia de carrito en sessionStorage aislado por usuario y sesión (caja_cart_${userId}_${sessionId}) con invalidación ante logout/nuevo login, tres modalidades de pago (Efectivo, Tarjeta, Mixto), cálculo exacto de cambio (ej. $347.50 con $500.00 -> $152.50), rechazo preventivo y en servidor de importes insuficientes/negativos/NaN, migración 20261007000000_add_payment_details_to_stock_outlets.sql con columnas financieras auditables en stock_outlets, RPC process_stock_outlet autoritativa con precios oficiales de DB, compatibilidad retroactiva, RLS e idempotencia ante reintentos. Evidencia: 158 tests locales passed, 0 locales failed, 1 skipped, 7 fallos Cloud DNS conocidos; Playwright 2 passed, 0 failed; build exit 0; diff-check exit 0. | N/A |
 | Post-Beta | FEATURE-PROD-IMG | ✅ Aprobado / Resuelto | Precisión numérica y spinners en /admin/productos (precio step 0.5, costo step 0.01, stock step 1, stock mínimo step 1; admisión manual de decimales stock 5.25 y min_stock 0.008), zona Drag & Drop con selector/preview/reemplazo/cancelación, persistencia local en static/uploads/products/ con URL /uploads/products/<uuid>.<ext>, endpoint GET seguro contra path traversal, validación MIME/tamaño/nombre, catálogo ampliado a 70x70 px (+75%), preservación de Admin-only/RLS/RPC/Soft Delete. Validación técnica: tests focalizados 36 passed, 0 failed; build exit code 0 con únicamente los 2 warnings Svelte conocidos; git diff --check exit 0; full suite con 121 passed, 1 skipped y 7 fallos preexistentes/externos de conectividad Supabase Cloud no atribuibles a la feature; validación funcional completa en Chromium (precio 5.00 → 5.50, stock 5 → 6, stock mínimo 2 → 3, costo 5.00 → 5.01). | N/A |
 | Post-Beta | ISSUE-010 | ✅ Resuelto | Hotfix de filtros de fechas en Historial (/admin/historial): Causa raíz: LocalQueryBuilder no soportaba .gte()/.lte(); el servidor de Historial invocaba esos métodos y producía HTTP 500; además se corrigió la semántica de límites de fecha para trabajar con días calendario completos mediante intervalo semiabierto [inicio del día, inicio del día siguiente). Evidencia de resolución: commit 57295357cb4da010e28742fd0a6ecb87938bca5b, npm run test: 114 passed, 1 skipped, 0 failed, y validación manual en Chromium contra PostgreSQL local (sin filtros: HTTP 200, 22 ventas; Hoy: 0 ventas sin arrastrar día anterior; 06/09 -> 06/09: 15 ventas incluyendo nocturnas folios 21 y 22; 06/09 -> 07/09: 15 ventas; 02/09 -> 02/09: 7 ventas). | N/A |
