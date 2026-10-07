@@ -328,7 +328,7 @@ export function createSupabaseServerClient(cookies: Cookies) {
 					let userRow: any = null;
 					try {
 						const res = await client.query(
-							'SELECT id, email, encrypted_password, raw_app_meta_data FROM auth.users WHERE LOWER(email) = $1',
+							'SELECT id, email, encrypted_password, raw_app_meta_data FROM auth.users WHERE (LOWER(email) = $1 OR LOWER(username) = $1) AND is_active = true',
 							[trimmedEmail]
 						);
 						userRow = res.rows[0];

@@ -376,5 +376,124 @@ if (process.env.VITEST) {
 			// Sin errores críticos en navegador
 			expect(pageErrors, 'No deben ocurrir errores en navegador durante el ciclo de vida del carrito').toHaveLength(0);
 		});
+
+		test('Gestión de Usuarios: Admin crea Cajero Daniel → Daniel accede /caja → Daniel rechazado en /admin/usuarios → Admin desactiva Daniel → Daniel no puede iniciar sesión', async ({
+			page
+		}) => {
+			const pageErrors: Error[] = [];
+			page.on('pageerror', (err) => {
+				console.error('[Browser PageError]', err.message);
+				pageErrors.push(err);
+			});
+
+			const DANIEL_USERNAME = `daniel_e2e_${Date.now()}`;
+			const DANIEL_DISPLAY = 'Daniel E2E Test';
+			const DANIEL_PASSWORD = 'daniel_e2e_123';
+			const DANIEL_EMAIL = `${DANIEL_USERNAME.toLowerCase()}@papeleria.local`;
+
+			// -------------------------------------------------------------
+			// 1. Login como Admin
+			// -------------------------------------------------------------
+			await page.goto('/login');
+			await page.fill('input#email', ADMIN_EMAIL);
+			await page.fill('input#password', ADMIN_PASSWORD);
+			await page.click('button#login-submit-button');
+
+			await expect(page).toHaveURL(/.*\/caja/);
+			await expect(page.locator('text=Rol: admin')).toBeVisible();
+
+			// -------------------------------------------------------------
+			// 2. Navegar a /admin/usuarios
+			// -------------------------------------------------------------
+			await page.goto('/admin/usuarios');
+			await expect(page).toHaveURL(/.*\/admin\/usuarios/);
+			await expect(page.locator('h1')).toContainText('Gestión de Usuarios');
+
+			// -------------------------------------------------------------
+			// 3. Crear Cajero Daniel
+			// -------------------------------------------------------------
+			await page.click('button#btn-create-user');
+			await expect(page.locator('h3:has-text("Crear Nuevo Cajero")')).toBeVisible();
+
+			await page.fill('input#create-username', DANIEL_USERNAME);
+			await page.fill('input#create-display-name', DANIEL_DISPLAY);
+			await page.fill('input#create-password', DANIEL_PASSWORD);
+			await page.fill('input#create-confirm-password', DANIEL_PASSWORD);
+			await page.click('button#btn-submit-create');
+
+			// Verificar feedback de éxito
+			await expect(page.locator('#feedback-banner')).toContainText('exitosamente');
+
+			// Verificar que Daniel aparece en la tabla
+			const danielRowInTable = page.locator(`table tbody tr:has-text("${DANIEL_USERNAME}")`);
+			await expect(danielRowInTable).toBeVisible();
+			await expect(danielRowInTable).toContainText(DANIEL_DISPLAY);
+
+			// -------------------------------------------------------------
+			// 4. Cerrar sesión Admin
+			// -------------------------------------------------------------
+			await page.context().clearCookies();
+			await page.goto('/login');
+			await expect(page).toHaveURL(/.*\/login/);
+
+			// -------------------------------------------------------------
+			// 5. Login como Daniel (nuevo Cajero)
+			// -------------------------------------------------------------
+			await page.fill('input#email', DANIEL_EMAIL);
+			await page.fill('input#password', DANIEL_PASSWORD);
+			await page.click('button#login-submit-button');
+
+			await expect(page).toHaveURL(/.*\/caja/);
+			await expect(page.locator('h1')).toContainText('Punto de Venta (Caja)');
+
+			// -------------------------------------------------------------
+			// 6. Daniel intenta acceder a /admin/usuarios → RBAC lo redirige
+			// -------------------------------------------------------------
+			await page.goto('/admin/usuarios');
+			await expect(page).toHaveURL(/.*\/caja/);
+
+			// -------------------------------------------------------------
+			// 7. Cerrar sesión Daniel, Login Admin
+			// -------------------------------------------------------------
+			await page.context().clearCookies();
+			await page.goto('/login');
+			await page.fill('input#email', ADMIN_EMAIL);
+			await page.fill('input#password', ADMIN_PASSWORD);
+			await page.click('button#login-submit-button');
+
+			await expect(page).toHaveURL(/.*\/caja/);
+
+			// -------------------------------------------------------------
+			// 8. Admin desactiva Daniel
+			// -------------------------------------------------------------
+			await page.goto('/admin/usuarios');
+			await expect(page).toHaveURL(/.*\/admin\/usuarios/);
+
+			// Locate Daniel's row and click deactivate
+			const danielRow = page.locator(`tr:has-text("${DANIEL_USERNAME}")`);
+			await expect(danielRow).toBeVisible();
+
+			const deactivateBtn = danielRow.locator('button[aria-label*="Desactivar"]');
+			await deactivateBtn.click();
+
+			// Verify Daniel is now shown as Inactivo
+			await expect(danielRow.locator('text=Inactivo')).toBeVisible({ timeout: 10000 });
+
+			// -------------------------------------------------------------
+			// 9. Daniel ya no puede iniciar sesión
+			// -------------------------------------------------------------
+			await page.context().clearCookies();
+			await page.goto('/login');
+			await page.fill('input#email', DANIEL_EMAIL);
+			await page.fill('input#password', DANIEL_PASSWORD);
+			await page.click('button#login-submit-button');
+
+			// Should remain on /login with error (inactive user rejected)
+			await expect(page).toHaveURL(/.*\/login/);
+			await expect(page.locator('text=Credenciales inválidas')).toBeVisible({ timeout: 5000 });
+
+			// Sin errores críticos en navegador
+			expect(pageErrors, 'No deben ocurrir errores durante gestión de usuarios E2E').toHaveLength(0);
+		});
 	});
 }
