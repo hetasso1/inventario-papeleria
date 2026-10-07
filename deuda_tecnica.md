@@ -131,12 +131,40 @@
     - Suite completa: `npm run test` (121 passed, 1 skipped, 7 failed debidos exclusivamente a indisponibilidad DNS/red de Supabase Cloud preexistente, desacoplada de la arquitectura local).
     - Validación funcional E2E en Chromium real: ciclo completo de creación con Drag & Drop, preview, guardado, recarga, reemplazo de imagen, persistencia tras reinicio del servidor y soft delete. Validación funcional real de spinners de producto en Chromium: precio 5.00 → 5.50 (step 0.5), stock 5 → 6 (step 1), stock mínimo 2 → 3 (step 1), costo 5.00 → 5.01 (step 0.01); ingreso manual de stock 5.25 y stock mínimo 0.008 aceptado sin bloqueo.
 
+- [x] ✅ ~~**FEATURE-POS-PAYMENT-CART: Persistencia de Carrito, Formas de Pago (Efectivo/Tarjeta/Mixto) y Cambio en Caja**~~ (~~⏳ Pendiente de revisión~~ / ✅ Aprobado)
+  - **Módulo:** POS / Caja UI & Core Backend (`/caja`, RPC `process_stock_outlet`)
+  - **Descripción:** Implementación de flujo de cobro robusto y persistencia segura de carrito en punto de venta:
+    - **Persistencia Aislada del Carrito:** Carrito persistido en `sessionStorage` indexado por usuario y sesión (`caja_cart_${userId}_${sessionId}`), garantizando que sobreviva a navegación interna entre secciones, desmontaje/recreación de `/caja` y recargas accidentales de página. Mecanismo de derivación de sesión a partir de cookie segura `app_session` con invalidación ante logout, garantizando que un nuevo login o un usuario distinto no recuperen carritos de sesiones anteriores. Sanitización estricta al hidratar contra catálogo activo (eliminación de productos inactivos/inexistentes, cantidades limitadas al stock actual disponible, poda de sesiones obsoletas en almacenamiento). Limpieza automática inmediata tras venta completada con éxito o vaciado explícito. Cero persistencia en base de datos previa a la venta formal.
+    - **Formas de Pago y Cálculo de Cambio:** Soporte completo para tres métodos de pago:
+      1. *Solo Efectivo:* Admisión de pago exacto o mayor con cálculo reactivo de cambio (ej. Total $347.50, Recibido $500.00 -> Cambio $152.50). Botones de acceso rápido para importes comunes y cambio devuelto visualmente destacado.
+      2. *Solo Tarjeta:* Cargo del 100% en terminal con cambio estrictamente $0.00 (sin campo de cambio en tarjeta).
+      3. *Pago Mixto:* Desglose entre importe en tarjeta y efectivo, calculando saldo restante en efectivo y cambio si el efectivo entregado supera la fracción requerida.
+      - *Validaciones Defensivas:* Bloqueo de ventas con importes negativos, valores NaN o no numéricos, pago insuficiente (`efectivo + tarjeta < total`), cambio negativo o ausencia de método de pago válido.
+    - **Persistencia Financiera en DB & RPC Idempotente:** Migración incremental `20261007000000_add_payment_details_to_stock_outlets.sql` incorporando `payment_method`, `cash_amount`, `card_amount`, `cash_received` y `change_amount` a `stock_outlets` con constraints `CHECK`. Redefinición de `process_stock_outlet` con cálculo autoritativo en servidor/DB a partir de precios oficiales en `products`, conservando `SECURITY DEFINER`, `search_path = public`, transacciones atómicas, validación de stock, auditoría en `inventory_logs`, RLS estricto e idempotencia basada en `p_idempotency_key` (reintentos devuelven folio existente sin duplicar deducciones físicas ni financieras). Firma y sobrecarga retrocompatible para llamadas existentes.
+  - **Archivos Autorizados:**
+    - `src/routes/caja/+page.svelte`
+    - `src/routes/caja/+page.server.ts`
+    - `src/lib/components/caja/CartTable.svelte`
+    - `supabase/migrations/20261007000000_add_payment_details_to_stock_outlets.sql`
+    - `tests/ui/scanner_checkout.test.ts`
+    - `tests/db/process_outlet.test.ts`
+    - `tests/e2e/pos_critical_flow.spec.ts`
+    - `deuda_tecnica.md`
+  - **Evidencia de Resolución:**
+    - 158 tests locales passed; 0 tests locales failed; 1 skipped; 7 fallos Cloud conocidos de ISSUE-007 por DNS ENOTFOUND (`npm run test`).
+    - Playwright: 2 passed, 0 failed (`npx playwright test tests/e2e/pos_critical_flow.spec.ts`).
+    - Pruebas focalizadas Vitest: 51 passed, 0 failed (`tests/db/process_outlet.test.ts` y `tests/ui/scanner_checkout.test.ts`).
+    - Compilación de producción: `npm run build` (exit code 0; warnings Svelte 5 limitados a los 2 preexistentes).
+    - Verificación de formato: `git diff --check` (exit code 0).
+    - Carrito aislado por usuario + sesión; efectivo/tarjeta/mixto; cálculo de cambio; persistencia financiera; idempotencia/RLS preservados.
+
 ---
 
 ## Sprint History
 
 | Sprint | Issue | Estado | Cambios Clave | Skill Actualizado |
 | :--- | :--- | :--- | :--- | :--- |
+| 22 | FEATURE-POS-PAYMENT-CART | ~~⏳ Pendiente de revisión~~ / ✅ Aprobado | Flujo de cobro robusto en /caja: persistencia de carrito en sessionStorage aislado por usuario y sesión (caja_cart_${userId}_${sessionId}) con invalidación ante logout/nuevo login, tres modalidades de pago (Efectivo, Tarjeta, Mixto), cálculo exacto de cambio (ej. $347.50 con $500.00 -> $152.50), rechazo preventivo y en servidor de importes insuficientes/negativos/NaN, migración 20261007000000_add_payment_details_to_stock_outlets.sql con columnas financieras auditables en stock_outlets, RPC process_stock_outlet autoritativa con precios oficiales de DB, compatibilidad retroactiva, RLS e idempotencia ante reintentos. Evidencia: 158 tests locales passed, 0 locales failed, 1 skipped, 7 fallos Cloud DNS conocidos; Playwright 2 passed, 0 failed; build exit 0; diff-check exit 0. | N/A |
 | Post-Beta | FEATURE-PROD-IMG | ✅ Aprobado / Resuelto | Precisión numérica y spinners en /admin/productos (precio step 0.5, costo step 0.01, stock step 1, stock mínimo step 1; admisión manual de decimales stock 5.25 y min_stock 0.008), zona Drag & Drop con selector/preview/reemplazo/cancelación, persistencia local en static/uploads/products/ con URL /uploads/products/<uuid>.<ext>, endpoint GET seguro contra path traversal, validación MIME/tamaño/nombre, catálogo ampliado a 70x70 px (+75%), preservación de Admin-only/RLS/RPC/Soft Delete. Validación técnica: tests focalizados 36 passed, 0 failed; build exit code 0 con únicamente los 2 warnings Svelte conocidos; git diff --check exit 0; full suite con 121 passed, 1 skipped y 7 fallos preexistentes/externos de conectividad Supabase Cloud no atribuibles a la feature; validación funcional completa en Chromium (precio 5.00 → 5.50, stock 5 → 6, stock mínimo 2 → 3, costo 5.00 → 5.01). | N/A |
 | Post-Beta | ISSUE-010 | ✅ Resuelto | Hotfix de filtros de fechas en Historial (/admin/historial): Causa raíz: LocalQueryBuilder no soportaba .gte()/.lte(); el servidor de Historial invocaba esos métodos y producía HTTP 500; además se corrigió la semántica de límites de fecha para trabajar con días calendario completos mediante intervalo semiabierto [inicio del día, inicio del día siguiente). Evidencia de resolución: commit 57295357cb4da010e28742fd0a6ecb87938bca5b, npm run test: 114 passed, 1 skipped, 0 failed, y validación manual en Chromium contra PostgreSQL local (sin filtros: HTTP 200, 22 ventas; Hoy: 0 ventas sin arrastrar día anterior; 06/09 -> 06/09: 15 ventas incluyendo nocturnas folios 21 y 22; 06/09 -> 07/09: 15 ventas; 02/09 -> 02/09: 7 ventas). | N/A |
 | 21 | BETA-PREP-AUDIT | ~~⏳ Pendiente de revisión~~ / ✅ Aprobado | Auditoría integral del sistema contra SRS v8.0 / v8.1 para entrega Beta: resolución de discrepancia de migraciones en documentación de despliegue local (incorporación de migración incremental 20260906000000_enforce_integer_quantities_in_pos.sql en README.md y ARQUITECTURA.md), alineación de métricas de pruebas a 106 passed en toda la documentación, corrección de accesibilidad (aria-label) en modal de detalle de historial, elaboración de la Guía de Prueba Manual para evaluación Beta con credenciales canónicas y preservación estricta de invariantes RLS, RPC, Soft Delete y auditoría. Cierre administrativo: validación técnica aprobada (106 passed, 1 skipped, 0 failed; build exit code 0 con 2 warnings Svelte 5 no bloqueantes documentados en login y productos; git diff --check exit 0; commit 88a84d0). | N/A |

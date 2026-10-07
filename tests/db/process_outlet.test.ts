@@ -114,6 +114,10 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON ROUTINES TO authenticated
 	const incrementalSql = readFileSync(incrementalPath, 'utf-8');
 	spawnSync('docker', ['exec', '-i', CONTAINER_NAME, 'psql', '-U', DB_USER, '-d', DB_NAME, '-v', 'ON_ERROR_STOP=1', '-q'], { input: incrementalSql, encoding: 'utf-8' });
 
+	const paymentPath = resolve('supabase/migrations/20261007000000_add_payment_details_to_stock_outlets.sql');
+	const paymentSql = readFileSync(paymentPath, 'utf-8');
+	spawnSync('docker', ['exec', '-i', CONTAINER_NAME, 'psql', '-U', DB_USER, '-d', DB_NAME, '-v', 'ON_ERROR_STOP=1', '-q'], { input: paymentSql, encoding: 'utf-8' });
+
 	const grantAfter = `
 GRANT ALL ON ALL TABLES IN SCHEMA public TO authenticated;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO authenticated;
@@ -428,5 +432,388 @@ SELECT process_stock_outlet(
 		// No partial outlet created
 		const outletsCount = execSql('SELECT count(*) FROM stock_outlets;');
 		expect(outletsCount).toBe('0');
+	});
+});
+
+describe('FEATURE-POS-PAYMENTS: Formas de pago, cambio y persistencia financiera en process_stock_outlet', () => {
+	it('procesa venta con pago en efectivo exacto persistiendo detalles financieros', () => {
+		const prodId = execSql(`
+SELECT upsert_product_with_cost(
+  NULL::uuid,
+  'SKU-PAY-001'::varchar,
+  'Calculadora Cientifica'::varchar,
+  '240 funciones'::text,
+  347.50::numeric,
+  180.00::numeric,
+  10.000::numeric,
+  2.000::numeric,
+  NULL::text
+);
+`, { role: 'admin', userId: ADMIN_ID });
+
+		const idempotencyKey = 'f0000000-0000-0000-0000-000000000001';
+		const payload = {
+			items: [{ product_id: prodId, quantity: 1 }],
+			payment_method: 'EFECTIVO',
+			cash_received: 347.50
+		};
+
+		const outletId = execSql(`
+SELECT process_stock_outlet(
+  '${JSON.stringify(payload)}'::jsonb,
+  '${idempotencyKey}'::uuid
+);
+`, { role: 'cajero', userId: CAJERO_ID });
+
+		const outlet = queryAsRole<Array<any>>(
+			'cajero',
+			CAJERO_ID,
+			`SELECT json_agg(o) FROM stock_outlets o WHERE id = '${outletId}';`
+		);
+		expect(outlet).toHaveLength(1);
+		expect(Number(outlet[0].total_amount)).toBe(347.50);
+		expect(outlet[0].payment_method).toBe('EFECTIVO');
+		expect(Number(outlet[0].cash_amount)).toBe(347.50);
+		expect(Number(outlet[0].card_amount)).toBe(0.00);
+		expect(Number(outlet[0].cash_received)).toBe(347.50);
+		expect(Number(outlet[0].change_amount)).toBe(0.00);
+	});
+
+	it('procesa venta en efectivo mayor al total calculando cambio correctamente ($500.00 -> $152.50)', () => {
+		const prodId = execSql(`
+SELECT upsert_product_with_cost(
+  NULL::uuid,
+  'SKU-PAY-002'::varchar,
+  'Mochila Escolar'::varchar,
+  'Impermeable'::text,
+  347.50::numeric,
+  200.00::numeric,
+  5.000::numeric,
+  1.000::numeric,
+  NULL::text
+);
+`, { role: 'admin', userId: ADMIN_ID });
+
+		const idempotencyKey = 'f0000000-0000-0000-0000-000000000002';
+		const payload = {
+			items: [{ product_id: prodId, quantity: 1 }],
+			payment_method: 'EFECTIVO',
+			cash_received: 500.00
+		};
+
+		const outletId = execSql(`
+SELECT process_stock_outlet(
+  '${JSON.stringify(payload)}'::jsonb,
+  '${idempotencyKey}'::uuid
+);
+`, { role: 'cajero', userId: CAJERO_ID });
+
+		const outlet = queryAsRole<Array<any>>(
+			'cajero',
+			CAJERO_ID,
+			`SELECT json_agg(o) FROM stock_outlets o WHERE id = '${outletId}';`
+		);
+		expect(outlet).toHaveLength(1);
+		expect(Number(outlet[0].total_amount)).toBe(347.50);
+		expect(outlet[0].payment_method).toBe('EFECTIVO');
+		expect(Number(outlet[0].cash_amount)).toBe(347.50);
+		expect(Number(outlet[0].card_amount)).toBe(0.00);
+		expect(Number(outlet[0].cash_received)).toBe(500.00);
+		expect(Number(outlet[0].change_amount)).toBe(152.50);
+	});
+
+	it('procesa venta con tarjeta 100% sin cambio', () => {
+		const prodId = execSql(`
+SELECT upsert_product_with_cost(
+  NULL::uuid,
+  'SKU-PAY-003'::varchar,
+  'Audifonos Bluetooth'::varchar,
+  'Inalambricos'::text,
+  347.50::numeric,
+  150.00::numeric,
+  8.000::numeric,
+  2.000::numeric,
+  NULL::text
+);
+`, { role: 'admin', userId: ADMIN_ID });
+
+		const idempotencyKey = 'f0000000-0000-0000-0000-000000000003';
+		const payload = {
+			items: [{ product_id: prodId, quantity: 1 }],
+			payment_method: 'TARJETA'
+		};
+
+		const outletId = execSql(`
+SELECT process_stock_outlet(
+  '${JSON.stringify(payload)}'::jsonb,
+  '${idempotencyKey}'::uuid
+);
+`, { role: 'cajero', userId: CAJERO_ID });
+
+		const outlet = queryAsRole<Array<any>>(
+			'cajero',
+			CAJERO_ID,
+			`SELECT json_agg(o) FROM stock_outlets o WHERE id = '${outletId}';`
+		);
+		expect(outlet).toHaveLength(1);
+		expect(Number(outlet[0].total_amount)).toBe(347.50);
+		expect(outlet[0].payment_method).toBe('TARJETA');
+		expect(Number(outlet[0].card_amount)).toBe(347.50);
+		expect(Number(outlet[0].cash_amount)).toBe(0.00);
+		expect(Number(outlet[0].cash_received)).toBe(0.00);
+		expect(Number(outlet[0].change_amount)).toBe(0.00);
+	});
+
+	it('procesa pago mixto (Tarjeta $147.50 + Efectivo $200.00) y calcula cambio si efectivo recibido es mayor', () => {
+		const prodId = execSql(`
+SELECT upsert_product_with_cost(
+  NULL::uuid,
+  'SKU-PAY-004'::varchar,
+  'Kit de Arte Oleo'::varchar,
+  'Estuche profesional'::text,
+  347.50::numeric,
+  190.00::numeric,
+  6.000::numeric,
+  1.000::numeric,
+  NULL::text
+);
+`, { role: 'admin', userId: ADMIN_ID });
+
+		// Caso A: Mixto exacto (Efectivo $200.00, Tarjeta $147.50, Recibido $200.00 -> Cambio $0.00)
+		const keyA = 'f0000000-0000-0000-0000-000000000004';
+		const payloadA = {
+			items: [{ product_id: prodId, quantity: 1 }],
+			payment_method: 'MIXTO',
+			card_amount: 147.50,
+			cash_received: 200.00
+		};
+
+		const outletIdA = execSql(`
+SELECT process_stock_outlet(
+  '${JSON.stringify(payloadA)}'::jsonb,
+  '${keyA}'::uuid
+);
+`, { role: 'cajero', userId: CAJERO_ID });
+
+		const outletA = queryAsRole<Array<any>>(
+			'cajero',
+			CAJERO_ID,
+			`SELECT json_agg(o) FROM stock_outlets o WHERE id = '${outletIdA}';`
+		);
+		expect(Number(outletA[0].total_amount)).toBe(347.50);
+		expect(outletA[0].payment_method).toBe('MIXTO');
+		expect(Number(outletA[0].card_amount)).toBe(147.50);
+		expect(Number(outletA[0].cash_amount)).toBe(200.00);
+		expect(Number(outletA[0].cash_received)).toBe(200.00);
+		expect(Number(outletA[0].change_amount)).toBe(0.00);
+
+		// Caso B: Mixto con billete mayor (Efectivo requerido $200.00, Recibido $250.00 -> Cambio $50.00)
+		const keyB = 'f0000000-0000-0000-0000-000000000005';
+		const payloadB = {
+			items: [{ product_id: prodId, quantity: 1 }],
+			payment_method: 'MIXTO',
+			card_amount: 147.50,
+			cash_received: 250.00
+		};
+
+		const outletIdB = execSql(`
+SELECT process_stock_outlet(
+  '${JSON.stringify(payloadB)}'::jsonb,
+  '${keyB}'::uuid
+);
+`, { role: 'cajero', userId: CAJERO_ID });
+
+		const outletB = queryAsRole<Array<any>>(
+			'cajero',
+			CAJERO_ID,
+			`SELECT json_agg(o) FROM stock_outlets o WHERE id = '${outletIdB}';`
+		);
+		expect(Number(outletB[0].total_amount)).toBe(347.50);
+		expect(outletB[0].payment_method).toBe('MIXTO');
+		expect(Number(outletB[0].card_amount)).toBe(147.50);
+		expect(Number(outletB[0].cash_amount)).toBe(200.00);
+		expect(Number(outletB[0].cash_received)).toBe(250.00);
+		expect(Number(outletB[0].change_amount)).toBe(50.00);
+	});
+
+	it('rechaza con excepción atómica el pago insuficiente en efectivo y en pago mixto', () => {
+		const prodId = execSql(`
+SELECT upsert_product_with_cost(
+  NULL::uuid,
+  'SKU-PAY-005'::varchar,
+  'Compas de Precision'::varchar,
+  'Metalico'::text,
+  100.00::numeric,
+  50.00::numeric,
+  10.000::numeric,
+  1.000::numeric,
+  NULL::text
+);
+`, { role: 'admin', userId: ADMIN_ID });
+
+		// Efectivo insuficiente: Total 100.00, Recibido 80.00
+		const resCash = runPsql(`
+SELECT process_stock_outlet(
+  '${JSON.stringify({
+		items: [{ product_id: prodId, quantity: 1 }],
+		payment_method: 'EFECTIVO',
+		cash_received: 80.00
+	})}'::jsonb
+);
+`, { role: 'cajero', userId: CAJERO_ID });
+		expect(resCash.status).not.toBe(0);
+		expect(resCash.stderr).toContain('Efectivo recibido insuficiente');
+
+		// Mixto insuficiente: Total 100.00, Tarjeta 60.00 (requiere 40.00 efectivo), Recibido 30.00
+		const resMixed = runPsql(`
+SELECT process_stock_outlet(
+  '${JSON.stringify({
+		items: [{ product_id: prodId, quantity: 1 }],
+		payment_method: 'MIXTO',
+		card_amount: 60.00,
+		cash_received: 30.00
+	})}'::jsonb
+);
+`, { role: 'cajero', userId: CAJERO_ID });
+		expect(resMixed.status).not.toBe(0);
+		expect(resMixed.stderr).toContain('Efectivo recibido insuficiente en pago mixto');
+	});
+
+	it('rechaza importes negativos, métodos inválidos y conserva atomicidad de la transacción', () => {
+		const prodId = execSql(`
+SELECT upsert_product_with_cost(
+  NULL::uuid,
+  'SKU-PAY-006'::varchar,
+  'Regla T 60cm'::varchar,
+  'Acrilico'::text,
+  75.00::numeric,
+  35.00::numeric,
+  10.000::numeric,
+  1.000::numeric,
+  NULL::text
+);
+`, { role: 'admin', userId: ADMIN_ID });
+
+		// Importe negativo de efectivo recibido
+		const resNeg = runPsql(`
+SELECT process_stock_outlet(
+  '${JSON.stringify({
+		items: [{ product_id: prodId, quantity: 1 }],
+		payment_method: 'EFECTIVO',
+		cash_received: -50.00
+	})}'::jsonb
+);
+`, { role: 'cajero', userId: CAJERO_ID });
+		expect(resNeg.status).not.toBe(0);
+
+		// Método no reconocido
+		const resMethod = runPsql(`
+SELECT process_stock_outlet(
+  '${JSON.stringify({
+		items: [{ product_id: prodId, quantity: 1 }],
+		payment_method: 'CRIPTOMONEDA',
+		cash_received: 75.00
+	})}'::jsonb
+);
+`, { role: 'cajero', userId: CAJERO_ID });
+		expect(resMethod.status).not.toBe(0);
+
+		// Stock de producto intacto (10.000)
+		const stock = execSql(`SELECT stock FROM products WHERE id = '${prodId}';`);
+		expect(Number(stock)).toBe(10.000);
+	});
+
+	it('conserva idempotencia: reintento con la misma idempotency_key devuelve outlet existente sin duplicar deducción ni pagos', () => {
+		const prodId = execSql(`
+SELECT upsert_product_with_cost(
+  NULL::uuid,
+  'SKU-PAY-007'::varchar,
+  'Engrapadora Uso Rudo'::varchar,
+  'Metalica'::text,
+  120.00::numeric,
+  60.00::numeric,
+  15.000::numeric,
+  2.000::numeric,
+  NULL::text
+);
+`, { role: 'admin', userId: ADMIN_ID });
+
+		const idempotencyKey = 'f0000000-0000-0000-0000-000000000007';
+		const payload = {
+			items: [{ product_id: prodId, quantity: 2 }],
+			payment_method: 'EFECTIVO',
+			cash_received: 300.00
+		};
+
+		// Llamada 1
+		const outlet1 = execSql(`
+SELECT process_stock_outlet(
+  '${JSON.stringify(payload)}'::jsonb,
+  '${idempotencyKey}'::uuid
+);
+`, { role: 'cajero', userId: CAJERO_ID });
+
+		// Llamada 2 con la misma llave
+		const outlet2 = execSql(`
+SELECT process_stock_outlet(
+  '${JSON.stringify(payload)}'::jsonb,
+  '${idempotencyKey}'::uuid
+);
+`, { role: 'cajero', userId: CAJERO_ID });
+
+		expect(outlet1).toBe(outlet2);
+
+		// Stock deducido solo una vez: 15.000 - 2 = 13.000
+		const stock = execSql(`SELECT stock FROM products WHERE id = '${prodId}';`);
+		expect(Number(stock)).toBe(13.000);
+
+		// Total de salidas registradas es 1
+		const outletsCount = execSql(`SELECT count(*) FROM stock_outlets WHERE idempotency_key = '${idempotencyKey}';`);
+		expect(outletsCount).toBe('1');
+	});
+
+	it('permite a un cajero vender con su rol y preserva aislamiento RLS de salidas', () => {
+		const prodId = execSql(`
+SELECT upsert_product_with_cost(
+  NULL::uuid,
+  'SKU-PAY-008'::varchar,
+  'Marcadores para Pizarron'::varchar,
+  'Paquete 4 colores'::text,
+  85.00::numeric,
+  40.00::numeric,
+  20.000::numeric,
+  2.000::numeric,
+  NULL::text
+);
+`, { role: 'admin', userId: ADMIN_ID });
+
+		const idempotencyKey = 'f0000000-0000-0000-0000-000000000008';
+		const outletId = execSql(`
+SELECT process_stock_outlet(
+  '${JSON.stringify({
+		items: [{ product_id: prodId, quantity: 1 }],
+		payment_method: 'TARJETA'
+	})}'::jsonb,
+  '${idempotencyKey}'::uuid
+);
+`, { role: 'cajero', userId: CAJERO_ID });
+
+		// Cajero puede consultar su propia salida
+		const cajeroView = queryAsRole<Array<any>>(
+			'cajero',
+			CAJERO_ID,
+			`SELECT json_agg(o) FROM stock_outlets o WHERE id = '${outletId}';`
+		);
+		expect(cajeroView).toHaveLength(1);
+		expect(cajeroView[0].user_id).toBe(CAJERO_ID);
+
+		// Admin también puede consultar la salida global
+		const adminView = queryAsRole<Array<any>>(
+			'admin',
+			ADMIN_ID,
+			`SELECT json_agg(o) FROM stock_outlets o WHERE id = '${outletId}';`
+		);
+		expect(adminView).toHaveLength(1);
+		expect(adminView[0].id).toBe(outletId);
 	});
 });

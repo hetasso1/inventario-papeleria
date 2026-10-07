@@ -271,5 +271,110 @@ if (process.env.VITEST) {
 			// -------------------------------------------------------------
 			expect(pageErrors, 'No deben ocurrir errores críticos en el navegador').toHaveLength(0);
 		});
+
+		test('Persistencia del Carrito y Aislamiento de Sesión: navegación, reload, venta y nuevo login', async ({
+			page
+		}) => {
+			const pageErrors: Error[] = [];
+			page.on('pageerror', (err) => {
+				console.error('[Browser PageError]', err.message);
+				pageErrors.push(err);
+			});
+
+			// -------------------------------------------------------------
+			// 1. Iniciar sesión como Admin y entrar a /caja
+			// -------------------------------------------------------------
+			await page.goto('/login');
+			await expect(page).toHaveTitle(/Iniciar Sesión/);
+			await page.fill('input#email', ADMIN_EMAIL);
+			await page.fill('input#password', ADMIN_PASSWORD);
+			await page.click('button#login-submit-button');
+
+			await expect(page).toHaveURL(/.*\/caja/);
+			await expect(page.locator('h1')).toContainText('Punto de Venta (Caja)');
+
+			// -------------------------------------------------------------
+			// 2. Agregar producto al carrito desde el catálogo rápido
+			// -------------------------------------------------------------
+			const firstProductButton = page.locator('div.grid button.group').first();
+			await expect(firstProductButton).toBeVisible();
+			const skuText = await firstProductButton.locator('span.font-mono').first().textContent();
+			expect(skuText, 'Se requiere un producto en el catálogo').toBeTruthy();
+			const targetSku = skuText!.trim();
+
+			await firstProductButton.click();
+
+			// Verificar producto agregado en el carrito
+			const cartRow = page.locator('table tbody tr').first();
+			await expect(cartRow).toBeVisible();
+			await expect(cartRow).toContainText(targetSku);
+			await expect(cartRow.locator('input[type="number"]')).toHaveValue('1');
+
+			// -------------------------------------------------------------
+			// 3. Navegar fuera de /caja a otra sección (/admin/productos) y regresar
+			// -------------------------------------------------------------
+			await page.goto('/admin/productos');
+			await expect(page).toHaveURL(/.*\/admin\/productos/);
+			await expect(page.locator('h1')).toContainText('Catálogo de Productos');
+
+			// Regresar a /caja y verificar que el carrito sigue intacto
+			await page.goto('/caja');
+			await expect(page).toHaveURL(/.*\/caja/);
+			await expect(page.locator('table tbody tr').first()).toBeVisible();
+			await expect(page.locator('table tbody tr').first()).toContainText(targetSku);
+			await expect(page.locator('table tbody tr input[type="number"]').first()).toHaveValue('1');
+
+			// -------------------------------------------------------------
+			// 4. Recargar accidentalmente la página (reload) y verificar carrito intacto
+			// -------------------------------------------------------------
+			await page.reload();
+			await expect(page).toHaveURL(/.*\/caja/);
+			await expect(page.locator('table tbody tr').first()).toBeVisible();
+			await expect(page.locator('table tbody tr').first()).toContainText(targetSku);
+			await expect(page.locator('table tbody tr input[type="number"]').first()).toHaveValue('1');
+
+			// -------------------------------------------------------------
+			// 5. Completar la venta y verificar carrito vacío
+			// -------------------------------------------------------------
+			const btnCheckout = page.locator('button#btn-checkout');
+			await expect(btnCheckout).toBeEnabled();
+			await btnCheckout.click();
+
+			// Modal/alerta de venta exitosa visible
+			await expect(page.locator('h3:has-text("¡Venta Registrada Exitosamente!")')).toBeVisible({ timeout: 15000 });
+
+			// El carrito debe estar completamente vacío
+			await expect(page.locator('text=El carrito está vacío')).toBeVisible();
+			await expect(page.locator('table tbody tr')).toHaveCount(0);
+
+			// -------------------------------------------------------------
+			// 6. Agregar un nuevo producto para dejar carrito pendiente en Sesión 1
+			// -------------------------------------------------------------
+			await firstProductButton.click();
+			await expect(page.locator('table tbody tr').first()).toBeVisible();
+			await expect(page.locator('table tbody tr').first()).toContainText(targetSku);
+
+			// -------------------------------------------------------------
+			// 7. Cerrar sesión e iniciar nueva sesión
+			// -------------------------------------------------------------
+			await page.locator('button[aria-label="Cerrar sesión"]').first().click();
+			await expect(page).toHaveURL(/.*\/login/);
+
+			// Iniciar nueva sesión como Cajero
+			await page.fill('input#email', CAJERO_EMAIL);
+			await page.fill('input#password', CAJERO_PASSWORD);
+			await page.click('button#login-submit-button');
+
+			await expect(page).toHaveURL(/.*\/caja/);
+
+			// -------------------------------------------------------------
+			// 8. Verificar que NO reaparece el carrito de la sesión anterior
+			// -------------------------------------------------------------
+			await expect(page.locator('text=El carrito está vacío')).toBeVisible();
+			await expect(page.locator('table tbody tr')).toHaveCount(0);
+
+			// Sin errores críticos en navegador
+			expect(pageErrors, 'No deben ocurrir errores en navegador durante el ciclo de vida del carrito').toHaveLength(0);
+		});
 	});
 }

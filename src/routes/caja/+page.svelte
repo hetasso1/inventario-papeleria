@@ -3,7 +3,12 @@
 	import BarcodeScanner from "$lib/components/caja/BarcodeScanner.svelte";
 	import CartTable, {
 		type CartItem,
+		type PaymentMethod,
 		calculateTotal,
+		calculatePayment,
+		validateAndRestoreCart,
+		getCartStorageKey,
+		pruneStaleCartSessions,
 	} from "$lib/components/caja/CartTable.svelte";
 	import Input from "$lib/components/ui/Input.svelte";
 	import Button from "$lib/components/ui/Button.svelte";
@@ -18,6 +23,8 @@
 		Info,
 		Loader2,
 		CreditCard,
+		Banknote,
+		Split,
 		Sparkles,
 	} from "lucide-svelte";
 
@@ -35,7 +42,51 @@
 		id: string;
 		total: number;
 		count: number;
+		paymentMethod?: string;
+		cashReceived?: number;
+		changeAmount?: number;
+		cardAmount?: number;
 	} | null>(null);
+
+	// Estado para formas de pago
+	let selectedPaymentMethod = $state<PaymentMethod>("EFECTIVO");
+	let cashReceivedInput = $state<string>("");
+	let cardAmountInput = $state<string>("");
+
+	let storageKey = $derived(getCartStorageKey(data.user?.id, (data as any).sessionId));
+
+	// Hidratación en montaje del componente desde sessionStorage con aislamiento de sesión
+	$effect(() => {
+		if (typeof window !== "undefined" && window.sessionStorage) {
+			pruneStaleCartSessions(storageKey);
+			const saved = window.sessionStorage.getItem(storageKey);
+			if (saved && cart.length === 0) {
+				const restored = validateAndRestoreCart(saved, data.products ?? []);
+				if (restored.length > 0) {
+					cart = restored;
+				}
+			}
+		}
+	});
+
+	// Persistencia reactiva cada vez que cart cambia
+	$effect(() => {
+		if (typeof window !== "undefined" && window.sessionStorage) {
+			if (cart.length > 0) {
+				window.sessionStorage.setItem(storageKey, JSON.stringify(cart));
+			} else {
+				window.sessionStorage.removeItem(storageKey);
+			}
+		}
+	});
+
+	let totalAmount = $derived(calculateTotal(cart));
+	let paymentCalc = $derived(
+		calculatePayment(totalAmount, selectedPaymentMethod, {
+			cashReceived: cashReceivedInput,
+			cardAmount: cardAmountInput,
+		})
+	);
 
 	// Filter products for quick-add list
 	let filteredProducts = $derived(
@@ -148,6 +199,11 @@
 		cart = [];
 		completedSale = null;
 		idempotencyKey = crypto.randomUUID();
+		cashReceivedInput = "";
+		cardAmountInput = "";
+		if (typeof window !== "undefined" && window.sessionStorage) {
+			window.sessionStorage.removeItem(storageKey);
+		}
 	}
 </script>
 
@@ -243,6 +299,16 @@
 						ID Salida: {completedSale.id} • Total: ${completedSale.total.toFixed(
 							2,
 						)} ({completedSale.count} artículos)
+						{#if completedSale.paymentMethod}
+							• {completedSale.paymentMethod}
+						{/if}
+						{#if completedSale.paymentMethod === 'EFECTIVO'}
+							• Recibido: ${(completedSale.cashReceived ?? completedSale.total).toFixed(2)} • Cambio: ${(completedSale.changeAmount ?? 0).toFixed(2)}
+						{:else if completedSale.paymentMethod === 'TARJETA'}
+							• Tarjeta: ${(completedSale.cardAmount ?? completedSale.total).toFixed(2)}
+						{:else if completedSale.paymentMethod === 'MIXTO'}
+							• Tarjeta: ${(completedSale.cardAmount ?? 0).toFixed(2)} • Recibido: ${(completedSale.cashReceived ?? 0).toFixed(2)} • Cambio: ${(completedSale.changeAmount ?? 0).toFixed(2)}
+						{/if}
 					</p>
 				</div>
 			</div>
@@ -391,6 +457,193 @@
 				onClearCart={clearCart}
 			/>
 
+			<!-- Formas de Pago Card -->
+			<div class="bg-card p-4 rounded-lg border border-border shadow-xs space-y-4">
+				<div class="flex items-center justify-between">
+					<span class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Forma de Pago</span>
+					<Badge variant="outline" class="font-mono text-[11px] uppercase">
+						{selectedPaymentMethod}
+					</Badge>
+				</div>
+
+				<!-- Selector Buttons -->
+				<div class="grid grid-cols-3 gap-2">
+					<button
+						type="button"
+						id="payment-method-cash"
+						onclick={() => { selectedPaymentMethod = 'EFECTIVO'; }}
+						class="flex flex-col items-center justify-center p-2.5 rounded-lg border text-xs font-medium transition-all cursor-pointer {selectedPaymentMethod === 'EFECTIVO' ? 'border-primary bg-primary/10 text-primary font-semibold ring-1 ring-primary' : 'border-border bg-muted/30 text-muted-foreground hover:bg-muted/70 hover:text-foreground'}"
+					>
+						<Banknote class="h-4 w-4 mb-1" strokeWidth={1.5} />
+						<span>Efectivo</span>
+					</button>
+
+					<button
+						type="button"
+						id="payment-method-card"
+						onclick={() => { selectedPaymentMethod = 'TARJETA'; }}
+						class="flex flex-col items-center justify-center p-2.5 rounded-lg border text-xs font-medium transition-all cursor-pointer {selectedPaymentMethod === 'TARJETA' ? 'border-primary bg-primary/10 text-primary font-semibold ring-1 ring-primary' : 'border-border bg-muted/30 text-muted-foreground hover:bg-muted/70 hover:text-foreground'}"
+					>
+						<CreditCard class="h-4 w-4 mb-1" strokeWidth={1.5} />
+						<span>Tarjeta</span>
+					</button>
+
+					<button
+						type="button"
+						id="payment-method-mixed"
+						onclick={() => {
+							selectedPaymentMethod = 'MIXTO';
+							if (!cardAmountInput && totalAmount > 0) {
+								cardAmountInput = (Math.round((totalAmount / 2) * 100) / 100).toFixed(2);
+							}
+						}}
+						class="flex flex-col items-center justify-center p-2.5 rounded-lg border text-xs font-medium transition-all cursor-pointer {selectedPaymentMethod === 'MIXTO' ? 'border-primary bg-primary/10 text-primary font-semibold ring-1 ring-primary' : 'border-border bg-muted/30 text-muted-foreground hover:bg-muted/70 hover:text-foreground'}"
+					>
+						<Split class="h-4 w-4 mb-1" strokeWidth={1.5} />
+						<span>Mixto</span>
+					</button>
+				</div>
+
+				<!-- Campos dinámicos según selección -->
+				{#if selectedPaymentMethod === 'EFECTIVO'}
+					<div class="space-y-3 pt-1 border-t border-border/60">
+						<div>
+							<div class="flex justify-between items-center mb-1">
+								<label for="input-cash-received" class="text-xs font-medium text-foreground">
+									Efectivo Recibido
+								</label>
+								<span class="text-[11px] text-muted-foreground">Total: ${totalAmount.toFixed(2)}</span>
+							</div>
+							<div class="relative">
+								<span class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-muted-foreground font-mono text-sm">$</span>
+								<input
+									id="input-cash-received"
+									type="number"
+									step="0.5"
+									min="0"
+									bind:value={cashReceivedInput}
+									placeholder={totalAmount.toFixed(2)}
+									class="flex h-10 w-full rounded-md border border-input bg-transparent pl-7 pr-3 py-2 text-sm font-mono shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+								/>
+							</div>
+						</div>
+
+						<!-- Botones rápidos de denominaciones -->
+						<div class="flex flex-wrap gap-1.5 pt-0.5">
+							<button
+								type="button"
+								onclick={() => { cashReceivedInput = totalAmount.toFixed(2); }}
+								class="px-2 py-1 text-[11px] rounded bg-muted hover:bg-accent border border-border text-foreground transition-colors cursor-pointer"
+							>
+								Exacto (${totalAmount.toFixed(2)})
+							</button>
+							{#each [50, 100, 200, 500, 1000] as bill}
+								{#if bill >= totalAmount}
+									<button
+										type="button"
+										onclick={() => { cashReceivedInput = bill.toFixed(2); }}
+										class="px-2 py-1 text-[11px] rounded bg-muted hover:bg-accent border border-border text-foreground transition-colors cursor-pointer"
+									>
+										${bill}
+									</button>
+								{/if}
+							{/each}
+						</div>
+
+						<!-- Desglose de cambio -->
+						{#if paymentCalc.valid}
+							<div class="flex justify-between items-center p-2.5 rounded-md bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-xs">
+								<span class="font-medium text-emerald-900 dark:text-emerald-200">Cambio:</span>
+								<span class="font-mono font-bold text-base text-emerald-700 dark:text-emerald-300 tabular-nums">
+									${paymentCalc.changeAmount.toFixed(2)}
+								</span>
+							</div>
+						{:else if cashReceivedInput}
+							<div class="text-xs text-amber-600 dark:text-amber-400 font-medium">
+								{paymentCalc.error}
+							</div>
+						{/if}
+					</div>
+
+				{:else if selectedPaymentMethod === 'TARJETA'}
+					<div class="space-y-2 pt-1 border-t border-border/60">
+						<div class="p-3 rounded-md bg-muted/40 border border-border text-xs space-y-1.5">
+							<div class="flex justify-between items-center">
+								<span class="text-muted-foreground">Cobro en Terminal:</span>
+								<span class="font-mono font-bold text-sm text-foreground tabular-nums">${totalAmount.toFixed(2)}</span>
+							</div>
+							<div class="flex justify-between items-center text-muted-foreground text-[11px]">
+								<span>Cambio:</span>
+								<span class="font-mono">$0.00 (No aplica)</span>
+							</div>
+						</div>
+					</div>
+
+				{:else if selectedPaymentMethod === 'MIXTO'}
+					<div class="space-y-3 pt-1 border-t border-border/60">
+						<div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+							<div>
+								<label for="input-card-amount" class="text-xs font-medium text-foreground block mb-1">
+									Tarjeta
+								</label>
+								<div class="relative">
+									<span class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-muted-foreground font-mono text-xs">$</span>
+									<input
+										id="input-card-amount"
+										type="number"
+										step="0.01"
+										min="0.01"
+										max={totalAmount}
+										bind:value={cardAmountInput}
+										placeholder="0.00"
+										class="flex h-9 w-full rounded-md border border-input bg-transparent pl-6 pr-2 py-1 text-xs font-mono shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+									/>
+								</div>
+							</div>
+
+							<div>
+								<label for="input-mixed-cash-received" class="text-xs font-medium text-foreground block mb-1">
+									Efectivo Recibido
+								</label>
+								<div class="relative">
+									<span class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-muted-foreground font-mono text-xs">$</span>
+									<input
+										id="input-mixed-cash-received"
+										type="number"
+										step="0.5"
+										min="0"
+										bind:value={cashReceivedInput}
+										placeholder={(Math.max(0, totalAmount - (Number(cardAmountInput) || 0))).toFixed(2)}
+										class="flex h-9 w-full rounded-md border border-input bg-transparent pl-6 pr-2 py-1 text-xs font-mono shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+									/>
+								</div>
+							</div>
+						</div>
+
+						<div class="p-2.5 rounded-md bg-muted/40 border border-border text-xs space-y-1">
+							<div class="flex justify-between text-muted-foreground">
+								<span>Efectivo requerido:</span>
+								<span class="font-mono font-medium text-foreground tabular-nums">
+									${paymentCalc.cashAmount.toFixed(2)}
+								</span>
+							</div>
+							{#if paymentCalc.valid}
+								<div class="flex justify-between items-center pt-1 border-t border-border/40 text-emerald-700 dark:text-emerald-300">
+									<span class="font-medium">Cambio:</span>
+									<span class="font-mono font-bold text-sm tabular-nums">
+										${paymentCalc.changeAmount.toFixed(2)}
+									</span>
+								</div>
+							{:else if cardAmountInput || cashReceivedInput}
+								<div class="text-[11px] text-amber-600 dark:text-amber-400 font-medium pt-1">
+									{paymentCalc.error}
+								</div>
+							{/if}
+						</div>
+					</div>
+				{/if}
+			</div>
+
 			<!-- Checkout Action Form -->
 			<form
 				method="POST"
@@ -407,8 +660,17 @@
 								id: resData?.outletId ?? "REG-OK",
 								total: totalCharged,
 								count: countCharged,
+								paymentMethod: selectedPaymentMethod,
+								cashReceived: resData?.cashReceived ?? paymentCalc.cashReceived,
+								changeAmount: resData?.changeAmount ?? paymentCalc.changeAmount,
+								cardAmount: resData?.cardAmount ?? paymentCalc.cardAmount
 							};
 							cart = [];
+							cashReceivedInput = "";
+							cardAmountInput = "";
+							if (typeof window !== "undefined" && window.sessionStorage) {
+								window.sessionStorage.removeItem(storageKey);
+							}
 							idempotencyKey = crypto.randomUUID(); // Fresh key for next operation
 							showNotification(
 								"success",
@@ -443,11 +705,36 @@
 					name="idempotency_key"
 					value={idempotencyKey}
 				/>
+				<input
+					type="hidden"
+					name="payment_method"
+					value={selectedPaymentMethod}
+				/>
+				<input
+					type="hidden"
+					name="cash_amount"
+					value={paymentCalc.cashAmount}
+				/>
+				<input
+					type="hidden"
+					name="card_amount"
+					value={paymentCalc.cardAmount}
+				/>
+				<input
+					type="hidden"
+					name="cash_received"
+					value={paymentCalc.cashReceived}
+				/>
+				<input
+					type="hidden"
+					name="change_amount"
+					value={paymentCalc.changeAmount}
+				/>
 
 				<button
 					id="btn-checkout"
 					type="submit"
-					disabled={submitting || cart.length === 0}
+					disabled={submitting || cart.length === 0 || !paymentCalc.valid}
 					class="w-full flex items-center justify-center gap-2 rounded-lg bg-black text-white px-6 py-3 text-sm font-medium shadow-sm hover:bg-black/90 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50 disabled:cursor-not-allowed transition-all cursor-pointer select-none border border-transparent"
 				>
 					{#if submitting}
@@ -461,11 +748,15 @@
 							class="h-4 w-4 text-white"
 							strokeWidth={1.5}
 						/>
-						<span
-							>Cobrar Venta (${calculateTotal(cart).toFixed(
-								2,
-							)})</span
-						>
+						<span>
+							{#if selectedPaymentMethod === 'EFECTIVO'}
+								Cobrar Venta en Efectivo (${totalAmount.toFixed(2)})
+							{:else if selectedPaymentMethod === 'TARJETA'}
+								Cobrar Venta con Tarjeta (${totalAmount.toFixed(2)})
+							{:else}
+								Cobrar Venta Mixta (${totalAmount.toFixed(2)})
+							{/if}
+						</span>
 					{/if}
 				</button>
 			</form>

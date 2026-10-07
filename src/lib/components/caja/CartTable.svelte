@@ -26,6 +26,239 @@
 		const max = Math.max(1, Math.floor(maxStock));
 		return Math.min(max, Math.floor(value));
 	}
+
+	export type PaymentMethod = 'EFECTIVO' | 'TARJETA' | 'MIXTO';
+
+	export interface PaymentCalculation {
+		valid: boolean;
+		error?: string;
+		method: PaymentMethod;
+		total: number;
+		cashAmount: number;
+		cardAmount: number;
+		cashReceived: number;
+		changeAmount: number;
+	}
+
+	/**
+	 * Calcula los montos financieros y el cambio según la forma de pago.
+	 */
+	export function calculatePayment(
+		total: number,
+		method: PaymentMethod,
+		options: {
+			cashReceived?: number | string | null;
+			cardAmount?: number | string | null;
+		} = {}
+	): PaymentCalculation {
+		const roundedTotal = Math.round(total * 100) / 100;
+		if (roundedTotal <= 0) {
+			return {
+				valid: false,
+				error: 'El total a cobrar debe ser mayor a $0.00.',
+				method,
+				total: 0,
+				cashAmount: 0,
+				cardAmount: 0,
+				cashReceived: 0,
+				changeAmount: 0
+			};
+		}
+
+		if (method === 'EFECTIVO') {
+			const hasReceivedInput = options.cashReceived !== undefined && options.cashReceived !== null && options.cashReceived !== '';
+			const rawReceived = hasReceivedInput ? Number(options.cashReceived) : roundedTotal;
+			if (isNaN(rawReceived) || rawReceived < 0) {
+				return {
+					valid: false,
+					error: 'El efectivo recibido debe ser un número válido y no negativo.',
+					method,
+					total: roundedTotal,
+					cashAmount: roundedTotal,
+					cardAmount: 0,
+					cashReceived: 0,
+					changeAmount: 0
+				};
+			}
+			const cashReceived = Math.round(rawReceived * 100) / 100;
+			if (cashReceived < roundedTotal) {
+				return {
+					valid: false,
+					error: `Efectivo insuficiente. Faltan $${(roundedTotal - cashReceived).toFixed(2)}.`,
+					method,
+					total: roundedTotal,
+					cashAmount: roundedTotal,
+					cardAmount: 0,
+					cashReceived,
+					changeAmount: 0
+				};
+			}
+			const changeAmount = Math.round((cashReceived - roundedTotal) * 100) / 100;
+			return {
+				valid: true,
+				method,
+				total: roundedTotal,
+				cashAmount: roundedTotal,
+				cardAmount: 0,
+				cashReceived,
+				changeAmount
+			};
+		}
+
+		if (method === 'TARJETA') {
+			return {
+				valid: true,
+				method,
+				total: roundedTotal,
+				cashAmount: 0,
+				cardAmount: roundedTotal,
+				cashReceived: 0,
+				changeAmount: 0
+			};
+		}
+
+		if (method === 'MIXTO') {
+			const rawCard = options.cardAmount !== undefined && options.cardAmount !== null && options.cardAmount !== ''
+				? Number(options.cardAmount)
+				: 0;
+			if (isNaN(rawCard) || rawCard <= 0) {
+				return {
+					valid: false,
+					error: 'En pago mixto, el importe de tarjeta debe ser mayor a $0.00.',
+					method,
+					total: roundedTotal,
+					cashAmount: 0,
+					cardAmount: 0,
+					cashReceived: 0,
+					changeAmount: 0
+				};
+			}
+			const cardAmount = Math.round(rawCard * 100) / 100;
+			if (cardAmount >= roundedTotal) {
+				return {
+					valid: false,
+					error: 'En pago mixto, el importe de tarjeta debe ser menor al total.',
+					method,
+					total: roundedTotal,
+					cashAmount: 0,
+					cardAmount,
+					cashReceived: 0,
+					changeAmount: 0
+				};
+			}
+			const cashAmount = Math.round((roundedTotal - cardAmount) * 100) / 100;
+			const hasReceivedInput = options.cashReceived !== undefined && options.cashReceived !== null && options.cashReceived !== '';
+			const rawReceived = hasReceivedInput ? Number(options.cashReceived) : cashAmount;
+			if (isNaN(rawReceived) || rawReceived < 0) {
+				return {
+					valid: false,
+					error: 'El efectivo recibido en pago mixto debe ser un número válido.',
+					method,
+					total: roundedTotal,
+					cashAmount,
+					cardAmount,
+					cashReceived: 0,
+					changeAmount: 0
+				};
+			}
+			const cashReceived = Math.round(rawReceived * 100) / 100;
+			if (cashReceived < cashAmount) {
+				return {
+					valid: false,
+					error: `Efectivo insuficiente. Faltan $${(cashAmount - cashReceived).toFixed(2)}.`,
+					method,
+					total: roundedTotal,
+					cashAmount,
+					cardAmount,
+					cashReceived,
+					changeAmount: 0
+				};
+			}
+			const changeAmount = Math.round((cashReceived - cashAmount) * 100) / 100;
+			return {
+				valid: true,
+				method,
+				total: roundedTotal,
+				cashAmount,
+				cardAmount,
+				cashReceived,
+				changeAmount
+			};
+		}
+
+		return {
+			valid: false,
+			error: 'Método de pago no reconocido.',
+			method,
+			total: roundedTotal,
+			cashAmount: 0,
+			cardAmount: 0,
+			cashReceived: 0,
+			changeAmount: 0
+		};
+	}
+
+	/**
+	 * Valida y restaura un carrito desde almacenamiento local contra el catálogo activo.
+	 */
+	export function validateAndRestoreCart(
+		rawJson: string | null | undefined,
+		catalogProducts: Array<{ id: string; name: string; sku_code: string; price: number; stock: number; is_active?: boolean; image_url?: string | null }>
+	): CartItem[] {
+		if (!rawJson) return [];
+		try {
+			const parsed = JSON.parse(rawJson);
+			if (!Array.isArray(parsed)) return [];
+
+			const productMap = new Map(catalogProducts.map((p) => [p.id, p]));
+			const restored: CartItem[] = [];
+
+			for (const item of parsed) {
+				if (!item || typeof item.id !== 'string') continue;
+				const product = productMap.get(item.id);
+				if (!product || (product.is_active === false) || product.stock <= 0) {
+					// Producto inactivo, inexistente o agotado: se omite defensivamente
+					continue;
+				}
+				const rawQty = Number(item.quantity);
+				const qty = isNaN(rawQty) || rawQty < 1 ? 1 : Math.floor(rawQty);
+				const clampedQty = clampQuantity(qty, product.stock);
+
+				restored.push({
+					id: product.id,
+					sku_code: product.sku_code,
+					name: product.name,
+					price: Number(product.price),
+					stock: Number(product.stock),
+					quantity: clampedQty,
+					image_url: product.image_url ?? item.image_url
+				});
+			}
+			return restored;
+		} catch {
+			return [];
+		}
+	}
+
+	export function getCartStorageKey(userId: string | null | undefined, sessionId?: string | null | undefined): string {
+		if (!userId) return 'caja_cart_anonymous';
+		return sessionId ? `caja_cart_${userId}_${sessionId}` : `caja_cart_${userId}`;
+	}
+
+	export function pruneStaleCartSessions(currentKey: string): void {
+		if (typeof window === 'undefined' || !window.sessionStorage) return;
+		try {
+			const storage = window.sessionStorage;
+			for (let i = storage.length - 1; i >= 0; i--) {
+				const key = storage.key(i);
+				if (key && key.startsWith('caja_cart_') && key !== currentKey) {
+					storage.removeItem(key);
+				}
+			}
+		} catch {
+			// ignore storage errors
+		}
+	}
 </script>
 
 <script lang="ts">
