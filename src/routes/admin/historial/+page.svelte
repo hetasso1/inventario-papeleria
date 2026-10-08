@@ -20,11 +20,13 @@
 			if (filterStatus === "canceled" && !outlet.is_canceled)
 				return false;
 
-			// Search filter (by Folio, ID, reason, or SKU in items)
+			// Search filter (by Folio, ID, reason, user, or SKU in items)
 			if (!searchQuery.trim()) return true;
 			const term = searchQuery.toLowerCase();
 			const matchFolio = outlet.folio != null && String(outlet.folio).includes(term);
 			const matchId = outlet.id.toLowerCase().includes(term);
+			const matchUser = (outlet.user_display_name?.toLowerCase().includes(term)) ||
+				(outlet.user_username?.toLowerCase().includes(term));
 			const matchReason = outlet.cancel_reason
 				?.toLowerCase()
 				.includes(term);
@@ -33,7 +35,7 @@
 					i.product_name.toLowerCase().includes(term) ||
 					i.sku_code.toLowerCase().includes(term),
 			);
-			return matchFolio || matchId || matchReason || matchItem;
+			return matchFolio || matchId || matchUser || matchReason || matchItem;
 		}),
 	);
 
@@ -65,6 +67,13 @@
 			hour: "2-digit",
 			minute: "2-digit",
 		});
+	}
+
+	function formatStock(val: number | string | null | undefined): string {
+		if (val === null || val === undefined || val === '') return '0';
+		const num = Number(val);
+		if (isNaN(num)) return '0';
+		return parseFloat(num.toFixed(3)).toString();
 	}
 </script>
 
@@ -400,7 +409,7 @@
 										? 'bg-red-50/20'
 										: ''}"
 								>
-									<!-- Folio & UUID -->
+									<!-- Folio, User & UUID -->
 									<td class="px-4 py-3.5">
 										<div
 											class="font-mono text-xs text-slate-900 font-semibold flex items-center gap-1.5"
@@ -408,8 +417,17 @@
 											<span class="text-slate-400">#</span>
 											<span>{outlet.folio != null ? outlet.folio : outlet.id.slice(0, 8)}</span>
 										</div>
+										{#if outlet.user_display_name}
+											<div class="text-[11px] text-slate-700 font-medium flex items-center gap-1 mt-0.5">
+												<span class="text-slate-400 text-[10px]">Por:</span>
+												<span class="font-semibold text-slate-800">{outlet.user_display_name}</span>
+												{#if outlet.user_username && outlet.user_username !== outlet.user_display_name}
+													<span class="text-[10px] text-slate-400 font-mono">(@{outlet.user_username})</span>
+												{/if}
+											</div>
+										{/if}
 										<div
-											class="text-[10px] text-slate-400 font-mono"
+											class="text-[10px] text-slate-400 font-mono mt-0.5"
 										>
 											ID: {outlet.id}
 										</div>
@@ -591,6 +609,55 @@
 						</button>
 					</div>
 
+					<!-- Responsable & Info Summary -->
+					<div class="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 bg-slate-50 rounded-lg border border-slate-200 text-xs">
+						<div>
+							<span class="text-slate-500 font-medium">Cajero Responsable:</span>
+							<div class="font-medium text-slate-900 mt-0.5 flex items-center gap-1">
+								{#if selectedOutletForDetail.user_display_name}
+									<span class="font-semibold text-slate-800">{selectedOutletForDetail.user_display_name}</span>
+									{#if selectedOutletForDetail.user_username && selectedOutletForDetail.user_username !== selectedOutletForDetail.user_display_name}
+										<span class="text-slate-400 font-mono text-[11px]">(@{selectedOutletForDetail.user_username})</span>
+									{/if}
+								{:else}
+									<span class="text-slate-600 font-mono">{selectedOutletForDetail.user_id ? `ID: ${selectedOutletForDetail.user_id.slice(0, 8)}...` : 'No especificado'}</span>
+								{/if}
+							</div>
+							{#if selectedOutletForDetail.user_id}
+								<div class="text-[10px] text-slate-400 font-mono mt-0.5" title={selectedOutletForDetail.user_id}>
+									UUID: {selectedOutletForDetail.user_id}
+								</div>
+							{/if}
+						</div>
+						<div>
+							<span class="text-slate-500 font-medium">Fecha y Hora:</span>
+							<div class="font-medium text-slate-900 mt-0.5">
+								{formatDate(selectedOutletForDetail.created_at)}
+							</div>
+						</div>
+						{#if selectedOutletForDetail.is_canceled}
+							<div class="sm:col-span-2 pt-2 border-t border-slate-200/80">
+								<span class="text-red-700 font-semibold">Cancelada / Devuelta:</span>
+								<div class="text-slate-700 mt-0.5 text-xs">
+									{#if selectedOutletForDetail.canceled_by_display_name}
+										Cancelada por <span class="font-semibold text-slate-900">{selectedOutletForDetail.canceled_by_display_name}</span>
+										{#if selectedOutletForDetail.canceled_by_username && selectedOutletForDetail.canceled_by_username !== selectedOutletForDetail.canceled_by_display_name}
+											<span class="text-slate-400 font-mono text-[11px]">(@{selectedOutletForDetail.canceled_by_username})</span>
+										{/if}
+										el {formatDate(selectedOutletForDetail.canceled_at)}
+									{:else if selectedOutletForDetail.canceled_by}
+										Cancelada por <span class="font-mono text-xs">{selectedOutletForDetail.canceled_by.slice(0, 8)}...</span> el {formatDate(selectedOutletForDetail.canceled_at)}
+									{/if}
+								</div>
+								{#if selectedOutletForDetail.cancel_reason}
+									<div class="text-slate-600 mt-0.5 text-[11px]">
+										Motivo: <span class="italic text-slate-800">{selectedOutletForDetail.cancel_reason}</span>
+									</div>
+								{/if}
+							</div>
+						{/if}
+					</div>
+
 					<div class="space-y-3">
 						<div
 							class="text-xs font-semibold uppercase tracking-wider text-slate-500"
@@ -677,9 +744,7 @@
 												>
 												<td
 													class="px-3 py-2.5 text-center font-mono text-slate-700"
-													>{item.quantity.toFixed(
-														3,
-													)}</td
+													>{formatStock(item.quantity)}</td
 												>
 												<td
 													class="px-3 py-2.5 text-right font-mono text-slate-700"

@@ -20,6 +20,8 @@
 		quantity_changed: number;
 		reference_id?: string | null;
 		created_by?: string | null;
+		user_display_name?: string | null;
+		user_username?: string | null;
 		notes?: string | null;
 		created_at: string;
 	}
@@ -51,9 +53,18 @@
 			const matchSku = log.sku_code?.toLowerCase().includes(term);
 			const matchRef = log.reference_id?.toLowerCase().includes(term);
 			const matchNotes = log.notes?.toLowerCase().includes(term);
-			return matchProd || matchSku || matchRef || matchNotes;
+			const matchUser = (log.user_display_name?.toLowerCase().includes(term)) ||
+				(log.user_username?.toLowerCase().includes(term));
+			return matchProd || matchSku || matchRef || matchNotes || matchUser;
 		}),
 	);
+
+	function formatStock(val: number | string | null | undefined): string {
+		if (val === null || val === undefined || val === '') return '0';
+		const num = Number(val);
+		if (isNaN(num)) return '0';
+		return parseFloat(num.toFixed(3)).toString();
+	}
 
 	function formatDate(dateStr: string) {
 		if (!dateStr) return "N/A";
@@ -370,9 +381,9 @@
 
 									<!-- Previous Stock -->
 									<td
-										class="px-3 py-3 text-right text-slate-500"
+										class="px-3 py-3 text-right text-slate-500 font-mono"
 									>
-										{log.previous_stock.toFixed(3)}
+										{formatStock(log.previous_stock)}
 									</td>
 
 									<!-- Variation -->
@@ -384,24 +395,22 @@
 										>
 											{isNegative
 												? ""
-												: "+"}{log.quantity_changed.toFixed(
-												3,
-											)}
+												: "+"}{formatStock(log.quantity_changed)}
 										</span>
 									</td>
 
 									<!-- New Stock -->
 									<td
-										class="px-3 py-3 text-right font-bold text-slate-900"
+										class="px-3 py-3 text-right font-bold text-slate-900 font-mono"
 									>
-										{log.new_stock.toFixed(3)}
+										{formatStock(log.new_stock)}
 									</td>
 
 									<!-- Reference & User -->
 									<td class="px-4 py-3 font-sans text-[11px]">
 										{#if log.reference_id}
 											<div
-												class="text-slate-700 truncate max-w-[140px] font-mono"
+												class="text-slate-700 truncate max-w-[150px] font-mono"
 												title={log.reference_id}
 											>
 												Ref: {log.reference_id.slice(
@@ -410,9 +419,28 @@
 												)}...
 											</div>
 										{/if}
-										{#if log.created_by}
+										{#if log.user_display_name}
 											<div
-												class="text-slate-400 truncate max-w-[140px] font-mono text-[10px]"
+												class="text-slate-900 font-medium truncate max-w-[150px] text-[11px] flex items-center gap-1 mt-0.5"
+												title="Usuario: {log.user_display_name}{log.user_username ? ` (@${log.user_username})` : ''} - ID: {log.created_by}"
+											>
+												<span class="text-slate-400 font-normal text-[10px]">Por:</span>
+												<span class="font-semibold text-slate-800">{log.user_display_name}</span>
+												{#if log.user_username && log.user_username !== log.user_display_name}
+													<span class="text-slate-400 font-mono text-[10px]">(@{log.user_username})</span>
+												{/if}
+											</div>
+											{#if log.created_by}
+												<div
+													class="text-slate-400 truncate max-w-[150px] font-mono text-[9px]"
+													title={log.created_by}
+												>
+													ID: {log.created_by.slice(0, 8)}...
+												</div>
+											{/if}
+										{:else if log.created_by}
+											<div
+												class="text-slate-400 truncate max-w-[150px] font-mono text-[10px] mt-0.5"
 												title={log.created_by}
 											>
 												User: {log.created_by.slice(

@@ -9,6 +9,7 @@
 		validateAndRestoreCart,
 		getCartStorageKey,
 		pruneStaleCartSessions,
+		formatStock,
 	} from "$lib/components/caja/CartTable.svelte";
 	import Input from "$lib/components/ui/Input.svelte";
 	import Button from "$lib/components/ui/Button.svelte";
@@ -434,7 +435,7 @@
 								>
 									<div class="flex items-center gap-1.5 min-w-0">
 										<span class="font-mono text-[11px] text-muted-foreground">{product.sku_code}</span>
-										<span class="text-[11px] text-muted-foreground">• Stock: {Number(product.stock)}</span>
+										<span class="text-[11px] text-muted-foreground">• Stock: {formatStock(product.stock)}</span>
 									</div>
 									<span
 										class="font-mono font-semibold text-foreground tabular-nums"

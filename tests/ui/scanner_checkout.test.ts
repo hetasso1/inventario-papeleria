@@ -8,6 +8,7 @@ import {
 	validateAndRestoreCart,
 	getCartStorageKey,
 	pruneStaleCartSessions,
+	formatStock,
 	type CartItem,
 	type PaymentMethod
 } from '../../src/lib/components/caja/CartTable.svelte';
@@ -820,5 +821,60 @@ describe('FEATURE-POS-PAYMENT-CART: Server Action Checkout con Formas de Pago', 
 		expect(result.status).toBe(400);
 		expect(result.data.error).toContain('Método de pago no válido');
 		expect(result.data.idempotencyKey).toBe(idempotencyKey);
+	});
+});
+
+describe('Sprint 24: Stock visual formatting without trailing zeros (formatStock)', () => {
+	it('formats integer stock without .000 (5.000 -> 5, 10.000 -> 10, 0.000 -> 0)', () => {
+		expect(formatStock('5.000')).toBe('5');
+		expect(formatStock(5.0)).toBe('5');
+		expect(formatStock(5)).toBe('5');
+
+		expect(formatStock('10.000')).toBe('10');
+		expect(formatStock(10.0)).toBe('10');
+		expect(formatStock(10)).toBe('10');
+
+		expect(formatStock('0.000')).toBe('0');
+		expect(formatStock(0.0)).toBe('0');
+		expect(formatStock(0)).toBe('0');
+	});
+
+	it('preserves significant decimal fractions without artificial truncation or rounding', () => {
+		expect(formatStock('5.250')).toBe('5.25');
+		expect(formatStock(5.25)).toBe('5.25');
+
+		expect(formatStock('0.008')).toBe('0.008');
+		expect(formatStock(0.008)).toBe('0.008');
+
+		expect(formatStock('12.345')).toBe('12.345');
+		expect(formatStock(12.345)).toBe('12.345');
+
+		expect(formatStock('1.500')).toBe('1.5');
+		expect(formatStock(1.5)).toBe('1.5');
+	});
+
+	it('respects NUMERIC(10,3) contract limits and avoids introducing artificial rounding or truncation', () => {
+		// Minimum non-zero contract precision step
+		expect(formatStock('0.001')).toBe('0.001');
+		expect(formatStock(0.001)).toBe('0.001');
+
+		// Maximum contract limits for NUMERIC(10,3) (7 integer digits, 3 decimals)
+		expect(formatStock('9999999.999')).toBe('9999999.999');
+		expect(formatStock(9999999.999)).toBe('9999999.999');
+		expect(formatStock('9999999.000')).toBe('9999999');
+		expect(formatStock(9999999.0)).toBe('9999999');
+
+		// Does not introduce artificial rounding on values with higher precision
+		expect(formatStock('0.0005')).toBe('0.0005');
+		expect(formatStock('5.1234')).toBe('5.1234');
+		expect(formatStock('50.050')).toBe('50.05');
+		expect(formatStock('50.000')).toBe('50');
+	});
+
+	it('handles empty, null, undefined and invalid inputs safely returning "0"', () => {
+		expect(formatStock(null)).toBe('0');
+		expect(formatStock(undefined)).toBe('0');
+		expect(formatStock('')).toBe('0');
+		expect(formatStock('not-a-number')).toBe('0');
 	});
 });

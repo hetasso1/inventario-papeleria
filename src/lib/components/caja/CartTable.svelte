@@ -19,6 +19,23 @@
 	}
 
 	/**
+	 * Formats stock/quantity for human display, removing trailing zeros (.000 -> integer)
+	 * while preserving significant decimal fractions (e.g. 5.250 -> 5.25, 0.008 -> 0.008)
+	 * without introducing artificial rounding or truncating numeric precision.
+	 */
+	export function formatStock(val: number | string | null | undefined): string {
+		if (val === null || val === undefined || val === '') return '0';
+		const num = Number(val);
+		if (isNaN(num)) return '0';
+		const str = String(val).trim();
+		if (str.includes('.')) {
+			const cleaned = str.replace(/\.?0+$/, '');
+			return cleaned === '' || cleaned === '-0' ? '0' : cleaned;
+		}
+		return String(num);
+	}
+
+	/**
 	 * Clamps quantity to integer range [1, maxStock].
 	 */
 	export function clampQuantity(value: number, maxStock: number): number {
@@ -364,7 +381,7 @@
 								<div class="text-[11px] font-mono text-muted-foreground flex items-center gap-1.5 mt-0.5">
 									<span>{item.sku_code}</span>
 									<span>•</span>
-									<span>Stock: {Number(item.stock)}</span>
+									<span>Stock: {formatStock(item.stock)}</span>
 								</div>
 							</td>
 

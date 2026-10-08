@@ -1,5 +1,39 @@
 import { fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
+/**
+ * Resolves human identity (display_name, username) from auth.users server-side
+ * using the existing locals.supabase client context.
+ * Does NOT filter by is_active so historical / deactivated users remain resolvable.
+ */
+async function resolveUsersMap(locals: any): Promise<{ userMap: Map<string, { display_name: string; username: string }>; error: any }> {
+	if (locals?.__mockUsersMap) {
+		return { userMap: locals.__mockUsersMap, error: null };
+	}
+	const userMap = new Map<string, { display_name: string; username: string }>();
+	if (!locals?.supabase) {
+		return { userMap, error: null };
+	}
+	const res = await locals.supabase
+		.from('auth"."users')
+		.select('id, display_name, username');
+
+	if (!res || res.error) {
+		if (res?.error) {
+			console.error('[Admin Historial Users Resolution Error]', res.error);
+			return { userMap, error: res.error };
+		}
+		return { userMap, error: null };
+	}
+
+	for (const row of res.data ?? []) {
+		userMap.set(row.id, {
+			display_name: row.display_name || row.username || '',
+			username: row.username || ''
+		});
+	}
+
+	return { userMap, error: null };
+}
 
 /**
  * Formats a Date object to local calendar YYYY-MM-DD string
@@ -240,6 +274,25 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		}
 	}
 
+	const { userMap, error: usersErr } = await resolveUsersMap(locals);
+	if (usersErr) {
+		return {
+			outlets: [],
+			metrics: {
+				validSalesCount: 0,
+				canceledSalesCount: 0,
+				totalRevenue: 0
+			},
+			filters: {
+				fecha: fechaParam,
+				desde: desdeParam,
+				hasta: hastaParam,
+				hoy: hoyParam
+			},
+			error: 'Error al cargar el historial de ventas.'
+		};
+	}
+
 	const sanitizedOutlets = (outlets ?? []).map((o: any) => {
 		const directItems = (o.stock_outlet_items ?? []).map((item: any) => ({
 			id: item.id,
@@ -253,14 +306,21 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 
 		const items = directItems.length > 0 ? directItems : (logsByOutlet[o.id] ?? []);
 
+		const creator = o.user_id ? userMap.get(o.user_id) : undefined;
+		const canceler = o.canceled_by ? userMap.get(o.canceled_by) : undefined;
+
 		return {
 			id: o.id,
 			folio: o.folio !== undefined && o.folio !== null ? Number(o.folio) : null,
 			user_id: o.user_id,
+			user_display_name: creator?.display_name ?? null,
+			user_username: creator?.username ?? null,
 			total_amount: Number(o.total_amount),
 			is_canceled: Boolean(o.is_canceled),
 			canceled_at: o.canceled_at,
 			canceled_by: o.canceled_by,
+			canceled_by_display_name: canceler?.display_name ?? null,
+			canceled_by_username: canceler?.username ?? null,
 			cancel_reason: o.cancel_reason,
 			idempotency_key: o.idempotency_key,
 			created_at: o.created_at,

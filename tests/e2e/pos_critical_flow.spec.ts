@@ -68,6 +68,10 @@ if (process.env.VITEST) {
 			const firstProductButton = page.locator('div.grid button.group').first();
 			await expect(firstProductButton).toBeVisible();
 
+			// Sprint 24 Tarea 1: Verificar que el stock mostrado en catálogo no contiene .000
+			const catalogStock = await firstProductButton.locator('text=• Stock:').textContent();
+			expect(catalogStock, 'El stock en catálogo no debe tener .000').not.toMatch(/\.000\b/);
+
 			const skuText = await firstProductButton.locator('span.font-mono').first().textContent();
 			expect(skuText, 'Se requiere un SKU en el catálogo activo').toBeTruthy();
 			const targetSku = skuText!.trim();
@@ -126,6 +130,10 @@ if (process.env.VITEST) {
 			const qtyInput = page.locator('table tbody tr input[type="number"]').first();
 			await expect(qtyInput).toHaveValue('1');
 			await expect(page.locator(`text=Último: ${targetSku}`)).toBeVisible();
+
+			// Sprint 24 Tarea 1: Verificar que el stock mostrado en la tabla del carrito no contiene .000
+			const cartStock = await page.locator('table tbody tr').first().locator('text=Stock:').textContent();
+			expect(cartStock, 'El stock en carrito no debe tener .000').not.toMatch(/\.000\b/);
 
 			// -------------------------------------------------------------
 			// 5. Scanner USB (Prueba 2): Captura de código de barras bajo FOCO EN <button>
@@ -232,6 +240,24 @@ if (process.env.VITEST) {
 			await expect(targetRow).toBeVisible();
 			await expect(targetRow.locator('text=Venta Activa')).toBeVisible();
 
+			// Sprint 24 Tarea 2: Historial muestra identidad humana en vez de UUID como identificador principal
+			await expect(targetRow.locator('text=Por: cajero')).toBeVisible();
+			// Sprint 24 Tarea 3: Trazabilidad interna continúa utilizando UUID
+			await expect(targetRow.locator('text=ID:')).toBeVisible();
+
+			// Abrir detalle y verificar cajero responsable y cantidades sin .000
+			const btnVerArticulos = targetRow.locator('button:has-text("Ver Artículos")');
+			await btnVerArticulos.click();
+			const detailModal = page.locator('div[role="dialog"]');
+			await expect(detailModal).toBeVisible();
+			await expect(detailModal.locator('text=Cajero Responsable:')).toBeVisible();
+			await expect(detailModal.getByText('cajero', { exact: true })).toBeVisible();
+			await expect(detailModal.locator('text=UUID:')).toBeVisible();
+			const detailQtyCell = detailModal.locator('table tbody tr td').nth(2);
+			const detailQtyText = await detailQtyCell.textContent();
+			expect(detailQtyText, 'Cantidad en detalle no debe tener .000').not.toMatch(/\.000\b/);
+			await detailModal.locator('button:has-text("Cerrar")').click();
+
 			// -------------------------------------------------------------
 			// 9. Ejecutar Devolución / Cancelación desde UI (cancel_stock_outlet RPC)
 			// -------------------------------------------------------------
@@ -265,6 +291,12 @@ if (process.env.VITEST) {
 			await expect(auditTable).toBeVisible();
 			await expect(page.locator('body')).toContainText('DEVOLUCION');
 			await expect(page.locator('body')).not.toContainText('column inventory_logs.changed_quantity does not exist');
+
+			// Sprint 24 Tarea 2: Auditoría muestra identidad humana en vez de solo UUID
+			await expect(auditTable.locator('text=Por:').first()).toBeVisible();
+			// Sprint 24 Tarea 1: Auditoría muestra variación y stocks sin .000
+			const firstRowContent = await auditTable.locator('tr').first().textContent();
+			expect(firstRowContent, 'Stock en auditoría no debe contener .000').not.toMatch(/\b\d+\.000\b/);
 
 			// -------------------------------------------------------------
 			// 11. Verificar ausencia de errores críticos en navegador
@@ -446,6 +478,15 @@ if (process.env.VITEST) {
 			await expect(page).toHaveURL(/.*\/caja/);
 			await expect(page.locator('h1')).toContainText('Punto de Venta (Caja)');
 
+			// 5b. Daniel realiza una venta antes de ser desactivado (para probar trazabilidad histórica de usuario desactivado)
+			const danielProductBtn = page.locator('div.grid button.group').first();
+			await expect(danielProductBtn).toBeVisible();
+			await danielProductBtn.click();
+			const danielCheckoutBtn = page.locator('button#btn-checkout');
+			await expect(danielCheckoutBtn).toBeEnabled();
+			await danielCheckoutBtn.click();
+			await expect(page.locator('h3:has-text("¡Venta Registrada Exitosamente!")')).toBeVisible({ timeout: 15000 });
+
 			// -------------------------------------------------------------
 			// 6. Daniel intenta acceder a /admin/usuarios → RBAC lo redirige
 			// -------------------------------------------------------------
@@ -491,6 +532,28 @@ if (process.env.VITEST) {
 			// Should remain on /login with error (inactive user rejected)
 			await expect(page).toHaveURL(/.*\/login/);
 			await expect(page.locator('text=Credenciales inválidas')).toBeVisible({ timeout: 5000 });
+
+			// -------------------------------------------------------------
+			// 10. Sprint 24: Usuario desactivado con registros históricos sigue apareciendo correctamente
+			// -------------------------------------------------------------
+			await page.fill('input#email', ADMIN_EMAIL);
+			await page.fill('input#password', ADMIN_PASSWORD);
+			await page.click('button#login-submit-button');
+			await expect(page).toHaveURL(/.*\/caja/);
+
+			// Verificar en Historial que la venta de Daniel sigue mostrando su display_name a pesar de estar desactivado
+			await page.goto('/admin/historial');
+			await expect(page).toHaveURL(/.*\/admin\/historial/);
+			const danielSaleRow = page.locator(`table tbody tr:has-text("${DANIEL_DISPLAY}")`).first();
+			await expect(danielSaleRow).toBeVisible();
+			await expect(danielSaleRow).toContainText(`Por: ${DANIEL_DISPLAY}`);
+
+			// Verificar en Auditoría que el log de Daniel sigue mostrando su display_name
+			await page.goto('/admin/auditoria');
+			await expect(page).toHaveURL(/.*\/admin\/auditoria/);
+			const danielAuditRow = page.locator(`table tbody tr:has-text("${DANIEL_DISPLAY}")`).first();
+			await expect(danielAuditRow).toBeVisible();
+			await expect(danielAuditRow).toContainText(`Por: ${DANIEL_DISPLAY}`);
 
 			// Sin errores críticos en navegador
 			expect(pageErrors, 'No deben ocurrir errores durante gestión de usuarios E2E').toHaveLength(0);

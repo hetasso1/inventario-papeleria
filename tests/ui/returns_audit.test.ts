@@ -382,8 +382,11 @@ describe('ISSUE-005: Stock Audit Server Load (+page.server.ts)', () => {
 		const mockOrder = vi.fn().mockResolvedValue({ data: [], error: null });
 		const mockSelect = vi.fn().mockReturnValue({ order: mockOrder });
 		const mockFrom = vi.fn().mockImplementation((table: string) => {
-			queriedTable = table;
-			return { select: mockSelect };
+			if (table === 'inventory_logs') {
+				queriedTable = table;
+				return { select: mockSelect };
+			}
+			return { select: vi.fn().mockResolvedValue({ data: [], error: null }) };
 		});
 
 		const event: any = {
@@ -445,7 +448,12 @@ describe('ISSUE-005: Stock Audit Server Load (+page.server.ts)', () => {
 			selectParam = query;
 			return { order: mockOrder };
 		});
-		const mockFrom = vi.fn().mockReturnValue({ select: mockSelect });
+		const mockFrom = vi.fn().mockImplementation((table: string) => {
+			if (table === 'inventory_logs') {
+				return { select: mockSelect };
+			}
+			return { select: vi.fn().mockResolvedValue({ data: [], error: null }) };
+		});
 
 		const event: any = {
 			locals: {
@@ -472,11 +480,15 @@ describe('ISSUE-005: Stock Audit Server Load (+page.server.ts)', () => {
 			quantity_changed: -5,
 			reference_id: 'outlet-uuid-1',
 			created_by: 'user-cajero-uuid',
+			user_display_name: null,
+			user_username: null,
 			notes: 'Venta mostrador',
 			created_at: '2026-09-02T10:00:00Z'
 		});
 		expect(result.logs[1].product_name).toBe('Producto no especificado');
 		expect(result.logs[1].sku_code).toBe('N/A');
+		expect(result.logs[1].user_display_name).toBeNull();
+		expect(result.logs[1].user_username).toBeNull();
 		expect(result.error).toBeNull();
 	});
 
@@ -630,6 +642,11 @@ describe('HOTFIX BETA: Date filtering regression tests (LocalQueryBuilder withou
 								})
 							})
 						})
+					};
+				}
+				if (table.includes('users')) {
+					return {
+						select: vi.fn().mockResolvedValue({ data: [], error: null })
 					};
 				}
 				return { select: vi.fn() };
@@ -970,5 +987,304 @@ describe('HOTFIX BETA: Semántica de fechas e intervalo semiabierto [inicio, dí
 		expect(result07.outlets).toHaveLength(1);
 		expect(result07.outlets[0].id).toBe('outlet-tz-noon-07');
 		expect(result07.metrics.totalRevenue).toBe(220.0);
+	});
+});
+
+describe('Sprint 24: Human Identity & Traceability (auth.users resolution)', () => {
+	it('historialLoad resolves human identity for user_id and canceled_by while preserving raw UUIDs', async () => {
+		const mockUsersMap = new Map([
+			['cajero-uuid-1', { display_name: 'Carlos Cajero', username: 'carlos' }],
+			['admin-uuid-1', { display_name: 'Ana Administradora', username: 'ana_admin' }]
+		]);
+
+		const sampleOutlets = [
+			{
+				id: 'outlet-sprint24-1',
+				folio: 501,
+				user_id: 'cajero-uuid-1',
+				total_amount: 150.0,
+				is_canceled: true,
+				canceled_at: '2026-10-07T12:00:00Z',
+				canceled_by: 'admin-uuid-1',
+				cancel_reason: 'Devolución cliente',
+				created_at: '2026-10-07T10:00:00Z',
+				stock_outlet_items: [
+					{
+						id: 'item-s24-1',
+						product_id: 'p-1',
+						quantity: 2,
+						unit_price: 75.0,
+						subtotal: 150.0,
+						products: { id: 'p-1', name: 'Libreta', sku_code: 'LIB-01' }
+					}
+				]
+			}
+		];
+
+		const mockSupabase = {
+			from: vi.fn().mockImplementation((table: string) => {
+				if (table === 'stock_outlets') {
+					return {
+						select: vi.fn().mockReturnValue({
+							order: vi.fn().mockResolvedValue({ data: sampleOutlets, error: null })
+						})
+					};
+				}
+				return {
+					select: vi.fn().mockReturnValue({
+						eq: vi.fn().mockReturnValue({
+							in: vi.fn().mockReturnValue({
+								limit: vi.fn().mockResolvedValue({ data: [], error: null })
+							})
+						})
+					})
+				};
+			}),
+			rpc: vi.fn()
+		};
+
+		const event: any = {
+			url: new URL('http://localhost:5173/admin/historial'),
+			locals: {
+				user: { id: 'admin-uuid-1', email: 'admin@papeleria.local' },
+				role: 'admin',
+				supabase: mockSupabase,
+				__mockUsersMap: mockUsersMap
+			},
+			request: { formData: vi.fn().mockResolvedValue(new FormData()) }
+		};
+
+		const result: any = await historialLoad(event);
+
+		expect(result.outlets).toHaveLength(1);
+		const outlet = result.outlets[0];
+		// Raw UUIDs are preserved for internal traceability
+		expect(outlet.user_id).toBe('cajero-uuid-1');
+		expect(outlet.canceled_by).toBe('admin-uuid-1');
+		// Human identities are resolved
+		expect(outlet.user_display_name).toBe('Carlos Cajero');
+		expect(outlet.user_username).toBe('carlos');
+		expect(outlet.canceled_by_display_name).toBe('Ana Administradora');
+		expect(outlet.canceled_by_username).toBe('ana_admin');
+	});
+
+	it('historialLoad resolves deactivated user (is_active = false) from auth.users without omitting them', async () => {
+		const mockUsersMap = new Map([
+			['deactivated-user-uuid', { display_name: 'Daniel Ex-Cajero', username: 'daniel_deact' }]
+		]);
+
+		const sampleOutlets = [
+			{
+				id: 'outlet-deactivated-user',
+				folio: 502,
+				user_id: 'deactivated-user-uuid',
+				total_amount: 99.0,
+				is_canceled: false,
+				created_at: '2026-10-07T11:00:00Z',
+				stock_outlet_items: [
+					{
+						id: 'item-s24-2',
+						product_id: 'p-2',
+						quantity: 3,
+						unit_price: 33.0,
+						subtotal: 99.0,
+						products: { id: 'p-2', name: 'Pluma', sku_code: 'PLU-02' }
+					}
+				]
+			}
+		];
+
+		const mockSupabase = {
+			from: vi.fn().mockImplementation((table: string) => {
+				if (table === 'stock_outlets') {
+					return {
+						select: vi.fn().mockReturnValue({
+							order: vi.fn().mockResolvedValue({ data: sampleOutlets, error: null })
+						})
+					};
+				}
+				return {
+					select: vi.fn().mockReturnValue({
+						eq: vi.fn().mockReturnValue({
+							in: vi.fn().mockReturnValue({
+								limit: vi.fn().mockResolvedValue({ data: [], error: null })
+							})
+						})
+					})
+				};
+			}),
+			rpc: vi.fn()
+		};
+
+		const event: any = {
+			url: new URL('http://localhost:5173/admin/historial'),
+			locals: {
+				user: { id: 'admin-uuid-1', email: 'admin@papeleria.local' },
+				role: 'admin',
+				supabase: mockSupabase,
+				__mockUsersMap: mockUsersMap
+			},
+			request: { formData: vi.fn().mockResolvedValue(new FormData()) }
+		};
+
+		const result: any = await historialLoad(event);
+
+		expect(result.outlets).toHaveLength(1);
+		const outlet = result.outlets[0];
+		expect(outlet.user_id).toBe('deactivated-user-uuid');
+		expect(outlet.user_display_name).toBe('Daniel Ex-Cajero');
+		expect(outlet.user_username).toBe('daniel_deact');
+	});
+
+	it('auditoriaLoad resolves human identity for created_by while preserving raw UUID', async () => {
+		const mockUsersMap = new Map([
+			['cajero-uuid-audit', { display_name: 'Beatriz Cajera', username: 'beatriz' }]
+		]);
+
+		const rawRows = [
+			{
+				id: 'log-audit-1',
+				product_id: 'prod-audit-1',
+				change_type: 'VENTA',
+				previous_stock: '10.000',
+				new_stock: '8.000',
+				quantity_changed: '-2.000',
+				reference_id: 'outlet-uuid-99',
+				created_by: 'cajero-uuid-audit',
+				notes: 'Venta mostrador',
+				created_at: '2026-10-07T11:30:00Z',
+				products: { name: 'Cartulina', sku_code: 'SKU-CART' }
+			}
+		];
+
+		const mockSupabase = {
+			from: vi.fn().mockReturnValue({
+				select: vi.fn().mockReturnValue({
+					order: vi.fn().mockResolvedValue({ data: rawRows, error: null })
+				})
+			})
+		};
+
+		const event: any = {
+			locals: {
+				supabase: mockSupabase,
+				__mockUsersMap: mockUsersMap
+			}
+		};
+
+		const result: any = await auditoriaLoad(event);
+
+		expect(result.logs).toHaveLength(1);
+		const log = result.logs[0];
+		expect(log.created_by).toBe('cajero-uuid-audit');
+		expect(log.user_display_name).toBe('Beatriz Cajera');
+		expect(log.user_username).toBe('beatriz');
+	});
+
+	it('auditoriaLoad resolves deactivated user (is_active = false) from auth.users without filtering out', async () => {
+		const mockUsersMap = new Map([
+			['inactive-user-uuid', { display_name: 'Usuario Antiguo', username: 'antiguo' }]
+		]);
+
+		const rawRows = [
+			{
+				id: 'log-audit-inactive',
+				product_id: 'prod-audit-2',
+				change_type: 'DEVOLUCION',
+				previous_stock: 0,
+				new_stock: 5,
+				quantity_changed: 5,
+				reference_id: 'outlet-uuid-100',
+				created_by: 'inactive-user-uuid',
+				notes: 'Cancelación autorizada',
+				created_at: '2026-10-07T12:00:00Z',
+				products: { name: 'Pegamento', sku_code: 'SKU-PEG' }
+			}
+		];
+
+		const mockSupabase = {
+			from: vi.fn().mockReturnValue({
+				select: vi.fn().mockReturnValue({
+					order: vi.fn().mockResolvedValue({ data: rawRows, error: null })
+				})
+			})
+		};
+
+		const event: any = {
+			locals: {
+				supabase: mockSupabase,
+				__mockUsersMap: mockUsersMap
+			}
+		};
+
+		const result: any = await auditoriaLoad(event);
+
+		expect(result.logs).toHaveLength(1);
+		const log = result.logs[0];
+		expect(log.created_by).toBe('inactive-user-uuid');
+		expect(log.user_display_name).toBe('Usuario Antiguo');
+		expect(log.user_username).toBe('antiguo');
+	});
+
+	it('historialLoad propagates real DB errors during user resolution without silently swallowing them', async () => {
+		const mockSupabase = {
+			from: vi.fn().mockImplementation((table: string) => {
+				if (table === 'stock_outlets') {
+					return {
+						select: vi.fn().mockReturnValue({
+							order: vi.fn().mockResolvedValue({ data: [], error: null })
+						})
+					};
+				}
+				if (table.includes('users')) {
+					return {
+						select: vi.fn().mockResolvedValue({ data: null, error: { message: 'DB connection failure in auth.users' } })
+					};
+				}
+				return { select: vi.fn() };
+			})
+		};
+
+		const event: any = {
+			url: new URL('http://localhost:5173/admin/historial'),
+			locals: {
+				user: { id: 'admin-1', email: 'admin@papeleria.local' },
+				role: 'admin',
+				supabase: mockSupabase
+			},
+			request: { formData: vi.fn().mockResolvedValue(new FormData()) }
+		};
+
+		const result: any = await historialLoad(event);
+		expect(result.error).toBe('Error al cargar el historial de ventas.');
+	});
+
+	it('auditoriaLoad propagates real DB errors during user resolution without silently swallowing them', async () => {
+		const mockSupabase = {
+			from: vi.fn().mockImplementation((table: string) => {
+				if (table === 'inventory_logs') {
+					return {
+						select: vi.fn().mockReturnValue({
+							order: vi.fn().mockResolvedValue({ data: [], error: null })
+						})
+					};
+				}
+				if (table.includes('users')) {
+					return {
+						select: vi.fn().mockResolvedValue({ data: null, error: { message: 'DB connection failure in auth.users' } })
+					};
+				}
+				return { select: vi.fn() };
+			})
+		};
+
+		const event: any = {
+			locals: {
+				supabase: mockSupabase
+			}
+		};
+
+		const result: any = await auditoriaLoad(event);
+		expect(result.error).toBe('No fue posible cargar el registro de auditoría.');
 	});
 });
