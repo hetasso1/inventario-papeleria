@@ -349,6 +349,15 @@ describe('ISSUE-003: Admin Products Module (+page.server.ts)', () => {
 		expect(rpcCall[0]).toBe('upsert_product_with_cost');
 		const imageUrl = rpcCall[1].p_image_url;
 		expect(imageUrl).toMatch(/^\/uploads\/products\/[0-9a-f-]+\.png$/);
+
+		// Clean up only the temporary file created by this test
+		if (imageUrl) {
+			const { unlink } = await import('node:fs/promises');
+			const { resolve } = await import('node:path');
+			try {
+				await unlink(resolve(process.cwd(), 'static', imageUrl.replace(/^\//, '')));
+			} catch { /* ignore */ }
+		}
 	});
 
 	it('action upsert replaces image — new path differs from existing', async () => {
@@ -375,6 +384,15 @@ describe('ISSUE-003: Admin Products Module (+page.server.ts)', () => {
 		// The new path should be different from the old one
 		expect(newImageUrl).not.toBe('/uploads/products/old-image-uuid.jpg');
 		expect(newImageUrl).toMatch(/^\/uploads\/products\/[0-9a-f-]+\.jpg$/);
+
+		// Clean up only the temporary file created by this test
+		if (newImageUrl) {
+			const { unlink } = await import('node:fs/promises');
+			const { resolve } = await import('node:path');
+			try {
+				await unlink(resolve(process.cwd(), 'static', newImageUrl.replace(/^\//, '')));
+			} catch { /* ignore */ }
+		}
 	});
 });
 
@@ -868,11 +886,11 @@ describe('Product Image Upload Endpoint (+server.ts)', () => {
 	});
 
 	afterAll(async () => {
-		const { rm } = await import('node:fs/promises');
+		const { unlink } = await import('node:fs/promises');
 		const { resolve } = await import('node:path');
-		const uploadsDir = resolve(process.cwd(), 'static', 'uploads');
+		const testFilePath = resolve(process.cwd(), 'static', 'uploads', 'products', '__vitest_test_image__.png');
 		try {
-			await rm(uploadsDir, { recursive: true, force: true });
+			await unlink(testFilePath);
 		} catch {
 			/* ignore */
 		}

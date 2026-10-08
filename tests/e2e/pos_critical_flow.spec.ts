@@ -584,17 +584,38 @@ if (process.env.VITEST) {
 				expect(stockText, 'El stock en /admin/productos no debe tener .000').not.toMatch(/\b\d+\.000\b/);
 			}
 
-			// 10b. Verificar que las imágenes de productos se cargan correctamente sin estar rotas
-			const productImages = page.locator('table tbody tr img');
-			const imgCount = await productImages.count();
-			if (imgCount > 0) {
-				const firstImg = productImages.first();
-				await expect(firstImg).toBeVisible();
-				const src = await firstImg.getAttribute('src');
-				expect(src).toBeTruthy();
-				// Verificar fetch HTTP 200 de la imagen del producto
-				const res = await page.request.get(src!);
+			// 10b. Verificar mecanismo seguro de servicio de imágenes locales con archivo real
+			const { writeFile, mkdir, unlink } = await import('node:fs/promises');
+			const { resolve } = await import('node:path');
+			const uploadsDir = resolve(process.cwd(), 'static', 'uploads', 'products');
+			await mkdir(uploadsDir, { recursive: true });
+
+			const testFilename = `e2e_real_test_${Date.now()}.png`;
+			const testFilePath = resolve(uploadsDir, testFilename);
+			// Imagen PNG real y válida (1x1 píxel transparente)
+			const expectedPngBytes = Buffer.from(
+				'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+				'base64'
+			);
+
+			try {
+				await writeFile(testFilePath, expectedPngBytes);
+
+				// Solicitar la imagen mediante el endpoint local
+				const res = await page.request.get(`/uploads/products/${testFilename}`);
 				expect(res.status()).toBe(200);
+				expect(res.headers()['content-type']).toContain('image/png');
+
+				// Comprobar que los bytes recibidos son exactamente los bytes escritos
+				const receivedBuffer = await res.body();
+				expect(Buffer.compare(receivedBuffer, expectedPngBytes)).toBe(0);
+			} finally {
+				// Eliminar únicamente el archivo temporal creado, sin borrar el directorio completo
+				try {
+					await unlink(testFilePath);
+				} catch {
+					/* ignore */
+				}
 			}
 
 			// Sin errores críticos en navegador
