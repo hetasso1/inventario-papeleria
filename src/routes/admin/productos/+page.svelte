@@ -37,6 +37,22 @@
 		modalOpen = false;
 		selectedProduct = null;
 	}
+
+	/**
+	 * Visual stock presentation formatter: trims trailing zeros from decimals (e.g. 12.000 -> 12, 5.250 -> 5.25)
+	 * preserving fractional precision without altering underlying numeric values or DB storage.
+	 */
+	function formatStock(val: number | string | null | undefined): string {
+		if (val === null || val === undefined || val === '') return '0';
+		const num = Number(val);
+		if (isNaN(num)) return '0';
+		const str = String(val).trim();
+		if (str.includes('.')) {
+			const cleaned = str.replace(/\.?0+$/, '');
+			return cleaned === '' || cleaned === '-0' ? '0' : cleaned;
+		}
+		return String(num);
+	}
 </script>
 
 <svelte:head>
@@ -347,13 +363,11 @@
 														/>
 													</svg>
 												{/if}
-												{product.stock.toFixed(3)}
+												{formatStock(product.stock)}
 											</span>
 											<span
 												class="text-[10px] text-slate-400"
-												>Mín: {product.min_stock.toFixed(
-													3,
-												)}</span
+												>Mín: {formatStock(product.min_stock)}</span
 											>
 										</div>
 									</td>

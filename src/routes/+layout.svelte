@@ -15,7 +15,8 @@
 		X,
 		UserCheck,
 		Shield,
-		Layers
+		Layers,
+		Users
 	} from 'lucide-svelte';
 
 	let { data, children }: { data: LayoutData; children: any } = $props();
@@ -33,6 +34,7 @@
 	let pageTitle = $derived.by(() => {
 		if (currentPath === '/caja') return 'Punto de Venta (Caja)';
 		if (currentPath.startsWith('/admin/productos')) return 'Gestión de Productos';
+		if (currentPath.startsWith('/admin/usuarios')) return 'Gestión de Usuarios';
 		if (currentPath.startsWith('/admin/historial')) return 'Historial de Salidas';
 		if (currentPath.startsWith('/admin/auditoria')) return 'Auditoría de Devoluciones';
 		return 'Inventario Papelería';
@@ -50,13 +52,13 @@
 	</div>
 {:else}
 	<!-- Shadcn Admin & POS App Layout (Sidebar + Top Navbar) -->
-	<div class="min-h-screen bg-background text-foreground font-sans flex flex-col md:flex-row">
-		<!-- Desktop Sidebar -->
+	<div class="min-h-screen md:h-screen md:overflow-hidden bg-background text-foreground font-sans flex flex-col md:flex-row">
+		<!-- Desktop Sidebar (occupies full viewport height, pinned footer logout) -->
 		<aside
-			class="hidden md:flex w-64 flex-col border-r border-border bg-card text-card-foreground shrink-0 select-none"
+			class="hidden md:flex w-64 h-full flex-col border-r border-border bg-card text-card-foreground shrink-0 select-none"
 		>
 			<!-- Brand / Header -->
-			<div class="h-16 flex items-center gap-3 px-5 border-b border-border">
+			<div class="h-16 shrink-0 flex items-center gap-3 px-5 border-b border-border">
 				<div
 					class="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-900 text-slate-50 dark:bg-slate-50 dark:text-slate-900 shadow-sm"
 				>
@@ -108,6 +110,18 @@
 							</a>
 
 							<a
+								href="/admin/usuarios"
+								class="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors {currentPath.startsWith(
+									'/admin/usuarios'
+								)
+									? 'bg-accent text-accent-foreground font-semibold shadow-xs'
+									: 'text-muted-foreground hover:bg-accent/60 hover:text-foreground'}"
+							>
+								<Users class="h-4 w-4 shrink-0" strokeWidth={1.5} />
+								<span>Usuarios</span>
+							</a>
+
+							<a
 								href="/admin/historial"
 								class="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors {currentPath.startsWith(
 									'/admin/historial'
@@ -135,8 +149,8 @@
 				{/if}
 			</div>
 
-			<!-- User Footer -->
-			<div class="p-3 border-t border-border bg-card/50">
+			<!-- User Footer (Pinned to bottom of viewport) -->
+			<div class="shrink-0 p-3 border-t border-border bg-card/50">
 				<div class="flex items-center justify-between gap-2 p-2 rounded-lg bg-accent/40 border border-border">
 					<div class="flex items-center gap-2.5 min-w-0">
 						<div
@@ -226,6 +240,19 @@
 							</a>
 
 							<a
+								href="/admin/usuarios"
+								onclick={() => (mobileMenuOpen = false)}
+								class="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium {currentPath.startsWith(
+									'/admin/usuarios'
+								)
+									? 'bg-accent text-accent-foreground font-semibold'
+									: 'text-muted-foreground hover:bg-accent/60'}"
+							>
+								<Users class="h-4 w-4" strokeWidth={1.5} />
+								<span>Usuarios</span>
+							</a>
+
+							<a
 								href="/admin/historial"
 								onclick={() => (mobileMenuOpen = false)}
 								class="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium {currentPath.startsWith(
@@ -270,11 +297,11 @@
 			{/if}
 		</div>
 
-		<!-- Main Workspace Area -->
-		<div class="flex-1 flex flex-col min-w-0 bg-background">
+		<!-- Main Workspace Area (scrolls independently from sidebar) -->
+		<div class="flex-1 flex flex-col min-w-0 bg-background md:h-full md:overflow-hidden">
 			<!-- Top Navbar (Desktop Breadcrumb & Quick Info) -->
 			<header
-				class="hidden md:flex h-16 items-center justify-between px-6 lg:px-8 border-b border-border bg-background/95 backdrop-blur-sm sticky top-0 z-30"
+				class="hidden md:flex h-16 shrink-0 items-center justify-between px-6 lg:px-8 border-b border-border bg-background/95 backdrop-blur-sm sticky top-0 z-30"
 			>
 				<!-- Breadcrumbs / Page Identity -->
 				<div class="flex items-center gap-2 text-sm">
@@ -293,7 +320,7 @@
 			</header>
 
 			<!-- Child Content Viewport -->
-			<main class="flex-1 overflow-auto">
+			<main class="flex-1 overflow-y-auto">
 				{@render children()}
 			</main>
 		</div>

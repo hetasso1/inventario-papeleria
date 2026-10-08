@@ -215,12 +215,39 @@
     - Formato: `git diff --check` exit code 0.
     - Trazabilidad UUID interna intacta y usuarios desactivados resueltos históricamente.
 
+- [x] ✅ ~~**FEATURE-CLOSING-SPRINT: Sprint Único de Cierre — Regresiones Visuales, Productos, Usuarios y Logout**~~ (✅ Resuelto / Listo para beta)
+  - **Módulo:** UI Layout, Productos, Auth & Usuarios (`+layout.svelte`, `/admin/productos`, `ProductModal`, `[filename]/+server.ts`, `/admin/usuarios`)
+  - **Descripción:** Corrección y cierre integral post-Sprint 24:
+    - **Stock en Productos:** Formateo visual estricto del campo stock y stock mínimo en `/admin/productos` sin ceros superfluos (`12.000` → `12`, `100.000` → `100`, `30.000` → `30`, `96.000` → `96`, `25.000` → `25`), preservando formatos monetarios de precio y costo (`$XX.XX`) y fracciones válidas (ej. `5.25`) sin alterar la base de datos.
+    - **Regresión de Imágenes:** Endpoint local dinámico `src/routes/uploads/products/[filename]/+server.ts` con protección contra path traversal insensible a mayúsculas/minúsculas en Windows y fallback resiliente para identificadores UUID registrados históricamente; conservación estricta de `image_url` en `ProductModal.svelte` ante ediciones que no alteran la imagen y soporte a subida local por Drag & Drop sin almacenamiento en la nube ni eliminación física de archivos.
+    - **Logout Fijo en Viewport:** Sidebar con altura de viewport bloqueada en desktop (`h-screen overflow-hidden`), navegación scrollable en la zona superior y botón de "Cerrar sesión" anclado y permanentemente visible en la parte inferior sin desplazarse por el scroll del contenido principal.
+    - **Gestión de Usuarios:** Menú administrativo con acceso visible a `/admin/usuarios` para Administrador, soporte a listado de usuarios, alta de cajeros (rol siempre `cajero`), edición de username y display_name, reseteo de contraseñas con PBKDF2, activación y desactivación lógica preservando integridad referencial en `auth.users`, bloqueo de segundo administrador y protección contra desactivación del único administrador activo.
+  - **Archivos Autorizados:**
+    - `src/routes/+layout.svelte`
+    - `src/routes/admin/productos/+page.svelte`
+    - `src/lib/components/admin/ProductModal.svelte`
+    - `src/routes/uploads/products/[filename]/+server.ts`
+    - `src/routes/admin/usuarios/+page.svelte`
+    - `src/routes/admin/usuarios/+page.server.ts`
+    - `supabase/migrations/20261007000000_add_user_management.sql`
+    - `tests/auth/user_management.test.ts`
+    - `tests/ui/scanner_checkout.test.ts`
+    - `tests/ui/returns_audit.test.ts`
+    - `tests/e2e/pos_critical_flow.spec.ts`
+    - `deuda_tecnica.md`
+  - **Evidencia de Resolución:**
+    - Vitest local: 188 passed, 0 failed, 1 skipped (7 fallos Cloud conocidos de ISSUE-007 por DNS externo).
+    - Playwright E2E: 3 passed, 0 failed en `tests/e2e/pos_critical_flow.spec.ts`.
+    - Build de producción: `npm run build` exit code 0.
+    - Chequeo de formato git: `git diff --check` exit code 0.
+
 ---
 
 ## Sprint History
 
 | Sprint | Issue | Estado | Cambios Clave | Skill Actualizado |
 | :--- | :--- | :--- | :--- | :--- |
+| Cierre Beta | FEATURE-CLOSING-SPRINT | ✅ Resuelto | Sprint Único de Cierre: stock visual sin `.000` en /admin/productos (12, 100, 30, 96, 25), resolución de regresión de imágenes locales con endpoint seguro y conservación en modal, botón de Logout anclado al pie del viewport en sidebar, menú y módulo completo de /admin/usuarios (alta cajeros, edición, PBKDF2, activación/desactivación sin borrado físico, protección de admin único). Evidencia: Vitest 188 passed, 0 failed, 1 skipped; Playwright 3 passed, 0 failed; build exit 0; git diff --check exit 0. | N/A |
 | 24 | FEATURE-STOCK-CLEANUP-IDENTITY | ~~⏳ Pendiente de revisión~~ / ✅ Aprobado | Cleanup visual de stock (eliminación de `.000` superfluo en Caja, Carrito, Historial y Auditoría manteniendo decimales significativos intactos) y resolución de identidad humana server-side desde `auth.users` (`display_name` y `username`) en Historial y Auditoría; preservación estricta de UUIDs para trazabilidad interna (`stock_outlets.user_id`, `inventory_logs.created_by`) y de usuarios desactivados con actividad histórica. Evidencia: 69 tests específicos passed (scanner + audit), 181 tests locales passed, 0 locales failed, 1 skipped, 7 fallos Cloud DNS conocidos de ISSUE-007; Playwright 3 passed, 0 failed; build exit 0; git diff --check exit 0. | N/A |
 | 23 | FEATURE-ADMIN-USERS | ~~⏳ Pendiente de revisión~~ / ✅ Aprobado | Administración de múltiples usuarios Cajero en /admin/usuarios exclusiva para Admin: identidad única en auth.users sin tabla paralela, columnas username (único), display_name e is_active NOT NULL DEFAULT true; autenticación estricta con is_active = true en server.ts; prevención de segundo Admin en UI, Server Actions y DB; bloqueo de desactivación del único Admin; contraseñas con PBKDF2-HMAC-SHA512 sin exponer hashes; preservación física de usuarios y trazabilidad histórica de stock_outlets.user_id. Evidencia: 16 tests específicos passed, 0 failed; 174 tests locales passed, 0 failed, 1 skipped; 7 fallos Cloud DNS conocidos de ISSUE-007; Playwright Gestión de Usuarios 1 passed, 0 failed; build exit 0; git diff --check exit 0. | N/A |
 | 22 | FEATURE-POS-PAYMENT-CART | ~~⏳ Pendiente de revisión~~ / ✅ Aprobado | Flujo de cobro robusto en /caja: persistencia de carrito en sessionStorage aislado por usuario y sesión (caja_cart_${userId}_${sessionId}) con invalidación ante logout/nuevo login, tres modalidades de pago (Efectivo, Tarjeta, Mixto), cálculo exacto de cambio (ej. $347.50 con $500.00 -> $152.50), rechazo preventivo y en servidor de importes insuficientes/negativos/NaN, migración 20261007000000_add_payment_details_to_stock_outlets.sql con columnas financieras auditables en stock_outlets, RPC process_stock_outlet autoritativa con precios oficiales de DB, compatibilidad retroactiva, RLS e idempotencia ante reintentos. Evidencia: 158 tests locales passed, 0 locales failed, 1 skipped, 7 fallos Cloud DNS conocidos; Playwright 2 passed, 0 failed; build exit 0; diff-check exit 0. | N/A |

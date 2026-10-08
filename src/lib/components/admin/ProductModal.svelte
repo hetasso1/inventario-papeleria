@@ -88,6 +88,7 @@
 		if (current.hasNewImage) return true;
 		const curImg = (current.imageUrl ?? '').trim();
 		const initImg = (initial.image_url ?? '').trim();
+		if (curImg !== initImg) return true;
 		return false;
 	}
 
@@ -686,6 +687,8 @@
 											</svg>
 											Reemplazar
 											<input
+												id="replace_image_file"
+												name="image_file"
 												type="file"
 												accept={ACCEPTED_TYPES.join(',')}
 												onchange={handleFileInputChange}

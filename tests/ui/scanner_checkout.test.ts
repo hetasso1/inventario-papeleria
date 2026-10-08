@@ -12,6 +12,7 @@ import {
 	type CartItem,
 	type PaymentMethod
 } from '../../src/lib/components/caja/CartTable.svelte';
+import { isProductFormDirty } from '../../src/lib/components/admin/ProductModal.svelte';
 import { load, actions } from '../../src/routes/caja/+page.server';
 import type { RequestEvent } from '@sveltejs/kit';
 
@@ -876,5 +877,78 @@ describe('Sprint 24: Stock visual formatting without trailing zeros (formatStock
 		expect(formatStock(undefined)).toBe('0');
 		expect(formatStock('')).toBe('0');
 		expect(formatStock('not-a-number')).toBe('0');
+	});
+
+	it('Sprint de Cierre: exact stock presentation cases (12, 100, 30, 96, 25)', () => {
+		expect(formatStock('12.000')).toBe('12');
+		expect(formatStock(12.0)).toBe('12');
+		expect(formatStock('100.000')).toBe('100');
+		expect(formatStock(100.0)).toBe('100');
+		expect(formatStock('30.000')).toBe('30');
+		expect(formatStock(30.0)).toBe('30');
+		expect(formatStock('96.000')).toBe('96');
+		expect(formatStock(96.0)).toBe('96');
+		expect(formatStock('25.000')).toBe('25');
+		expect(formatStock(25.0)).toBe('25');
+	});
+});
+
+describe('Sprint de Cierre: Product image preservation and dirty tracking (isProductFormDirty)', () => {
+	const initialProduct = {
+		id: 'prod-abc',
+		sku_code: 'SKU-IMG-01',
+		name: 'Cuaderno',
+		description: 'Rayado',
+		price: 25.0,
+		cost: 15.0,
+		stock: 12,
+		min_stock: 5,
+		image_url: '/uploads/products/da58b443-3c8a-4ebd-8ffa-8e61646ff61e.png',
+		is_active: true
+	};
+
+	it('editing product without changing image preserves image_url and remains clean', () => {
+		const isDirty = isProductFormDirty(initialProduct, {
+			sku: 'SKU-IMG-01',
+			name: 'Cuaderno',
+			description: 'Rayado',
+			price: 25.0,
+			cost: 15.0,
+			stock: 12,
+			minStock: 5,
+			imageUrl: '/uploads/products/da58b443-3c8a-4ebd-8ffa-8e61646ff61e.png',
+			hasNewImage: false
+		});
+		expect(isDirty).toBe(false);
+	});
+
+	it('editing product with a newly uploaded file triggers dirty state', () => {
+		const isDirty = isProductFormDirty(initialProduct, {
+			sku: 'SKU-IMG-01',
+			name: 'Cuaderno',
+			description: 'Rayado',
+			price: 25.0,
+			cost: 15.0,
+			stock: 12,
+			minStock: 5,
+			imageUrl: '/uploads/products/da58b443-3c8a-4ebd-8ffa-8e61646ff61e.png',
+			hasNewImage: true
+		});
+		expect(isDirty).toBe(true);
+	});
+
+	it('editing product and changing/clearing image URL triggers dirty state', () => {
+		const isDirty = isProductFormDirty(initialProduct, {
+			sku: 'SKU-IMG-01',
+			name: 'Cuaderno',
+			description: 'Rayado',
+			price: 25.0,
+			cost: 15.0,
+			stock: 12,
+			minStock: 5,
+			imageUrl: '',
+			hasNewImage: false
+		});
+		expect(isDirty).toBe(true);
 	});
 });

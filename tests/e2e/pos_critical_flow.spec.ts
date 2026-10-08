@@ -424,7 +424,7 @@ if (process.env.VITEST) {
 			const DANIEL_EMAIL = `${DANIEL_USERNAME.toLowerCase()}@papeleria.local`;
 
 			// -------------------------------------------------------------
-			// 1. Login como Admin
+			// 1. Login como Admin y verificación de Logout fijo en sidebar
 			// -------------------------------------------------------------
 			await page.goto('/login');
 			await page.fill('input#email', ADMIN_EMAIL);
@@ -434,12 +434,26 @@ if (process.env.VITEST) {
 			await expect(page).toHaveURL(/.*\/caja/);
 			await expect(page.locator('text=Rol: admin')).toBeVisible();
 
+			// Tarea 2: Verificar que el botón de Cerrar sesión está fijo en el sidebar y visible en el viewport
+			const logoutBtn = page.locator('aside form[action="/logout"] button[aria-label="Cerrar sesión"]');
+			await expect(logoutBtn).toBeVisible();
+			await expect(logoutBtn).toBeInViewport();
+
+			// Desplazar el contenido principal y comprobar que el botón de logout no se desplaza ni desaparece
+			await page.evaluate(() => document.querySelector('main')?.scrollTo(0, 1000));
+			await expect(logoutBtn).toBeInViewport();
+
 			// -------------------------------------------------------------
-			// 2. Navegar a /admin/usuarios
+			// 2. Navegar a /admin/usuarios mediante enlace en sidebar
 			// -------------------------------------------------------------
-			await page.goto('/admin/usuarios');
+			const navUsuariosLink = page.locator('aside a[href="/admin/usuarios"]');
+			await expect(navUsuariosLink).toBeVisible();
+			await navUsuariosLink.click();
 			await expect(page).toHaveURL(/.*\/admin\/usuarios/);
 			await expect(page.locator('h1')).toContainText('Gestión de Usuarios');
+
+			// Verificar que logout sigue fijo y visible en el viewport en la pantalla de usuarios
+			await expect(logoutBtn).toBeInViewport();
 
 			// -------------------------------------------------------------
 			// 3. Crear Cajero Daniel
@@ -462,10 +476,9 @@ if (process.env.VITEST) {
 			await expect(danielRowInTable).toContainText(DANIEL_DISPLAY);
 
 			// -------------------------------------------------------------
-			// 4. Cerrar sesión Admin
+			// 4. Cerrar sesión Admin usando el botón de Logout fijo
 			// -------------------------------------------------------------
-			await page.context().clearCookies();
-			await page.goto('/login');
+			await logoutBtn.click();
 			await expect(page).toHaveURL(/.*\/login/);
 
 			// -------------------------------------------------------------
@@ -494,10 +507,13 @@ if (process.env.VITEST) {
 			await expect(page).toHaveURL(/.*\/caja/);
 
 			// -------------------------------------------------------------
-			// 7. Cerrar sesión Daniel, Login Admin
+			// 7. Daniel cierra sesión con Logout fijo, Login Admin
 			// -------------------------------------------------------------
-			await page.context().clearCookies();
-			await page.goto('/login');
+			const danielLogoutBtn = page.locator('aside form[action="/logout"] button[aria-label="Cerrar sesión"]');
+			await expect(danielLogoutBtn).toBeVisible();
+			await danielLogoutBtn.click();
+			await expect(page).toHaveURL(/.*\/login/);
+
 			await page.fill('input#email', ADMIN_EMAIL);
 			await page.fill('input#password', ADMIN_PASSWORD);
 			await page.click('button#login-submit-button');
@@ -505,7 +521,7 @@ if (process.env.VITEST) {
 			await expect(page).toHaveURL(/.*\/caja/);
 
 			// -------------------------------------------------------------
-			// 8. Admin desactiva Daniel
+			// 8. Admin desactiva Daniel en /admin/usuarios
 			// -------------------------------------------------------------
 			await page.goto('/admin/usuarios');
 			await expect(page).toHaveURL(/.*\/admin\/usuarios/);
@@ -523,8 +539,8 @@ if (process.env.VITEST) {
 			// -------------------------------------------------------------
 			// 9. Daniel ya no puede iniciar sesión
 			// -------------------------------------------------------------
-			await page.context().clearCookies();
-			await page.goto('/login');
+			await logoutBtn.click();
+			await expect(page).toHaveURL(/.*\/login/);
 			await page.fill('input#email', DANIEL_EMAIL);
 			await page.fill('input#password', DANIEL_PASSWORD);
 			await page.click('button#login-submit-button');
@@ -534,7 +550,7 @@ if (process.env.VITEST) {
 			await expect(page.locator('text=Credenciales inválidas')).toBeVisible({ timeout: 5000 });
 
 			// -------------------------------------------------------------
-			// 10. Sprint 24: Usuario desactivado con registros históricos sigue apareciendo correctamente
+			// 10. Login Admin y verificación de histórico + Productos (Stock sin .000 e Imágenes)
 			// -------------------------------------------------------------
 			await page.fill('input#email', ADMIN_EMAIL);
 			await page.fill('input#password', ADMIN_PASSWORD);
@@ -554,6 +570,32 @@ if (process.env.VITEST) {
 			const danielAuditRow = page.locator(`table tbody tr:has-text("${DANIEL_DISPLAY}")`).first();
 			await expect(danielAuditRow).toBeVisible();
 			await expect(danielAuditRow).toContainText(`Por: ${DANIEL_DISPLAY}`);
+
+			// Tarea 1: Verificar en /admin/productos presentación de stock e imágenes
+			await page.goto('/admin/productos');
+			await expect(page).toHaveURL(/.*\/admin\/productos/);
+
+			// 10a. Verificar que los stocks en la tabla NO contienen .000 (12.000 -> 12, etc.)
+			const stockCells = page.locator('table tbody tr td:nth-child(5)');
+			const count = await stockCells.count();
+			expect(count).toBeGreaterThan(0);
+			for (let i = 0; i < Math.min(count, 5); i++) {
+				const stockText = await stockCells.nth(i).textContent();
+				expect(stockText, 'El stock en /admin/productos no debe tener .000').not.toMatch(/\b\d+\.000\b/);
+			}
+
+			// 10b. Verificar que las imágenes de productos se cargan correctamente sin estar rotas
+			const productImages = page.locator('table tbody tr img');
+			const imgCount = await productImages.count();
+			if (imgCount > 0) {
+				const firstImg = productImages.first();
+				await expect(firstImg).toBeVisible();
+				const src = await firstImg.getAttribute('src');
+				expect(src).toBeTruthy();
+				// Verificar fetch HTTP 200 de la imagen del producto
+				const res = await page.request.get(src!);
+				expect(res.status()).toBe(200);
+			}
 
 			// Sin errores críticos en navegador
 			expect(pageErrors, 'No deben ocurrir errores durante gestión de usuarios E2E').toHaveLength(0);
